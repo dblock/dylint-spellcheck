@@ -7,3 +7,13 @@ fn main() {
     let _ = "// typpo";
     let _ = r"/* typpo */";
 }
+
+/// # hello
+///
+/// [world](wrongword) café
+/// ```
+/// typpo
+/// ```
+///     wrongword
+/// `wrongword`
+const _: () = ();
