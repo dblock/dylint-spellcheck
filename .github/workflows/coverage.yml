@@ -1,0 +1,51 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Coverage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache Dylint driver
+        uses: actions/cache@v4
+        with:
+          path: ~/.dylint_drivers
+          key: dylint-driver-${{ runner.os }}-${{ runner.arch }}-6.2.0-${{ hashFiles('rust-toolchain.toml') }}
+      - name: Install Dylint
+        run: cargo +stable install cargo-dylint dylint-link --version 6.2.0 --locked
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate coverage
+        run: cargo llvm-cov --all-features --workspace --locked --lcov --output-path lcov.info
+      - uses: coverallsapp/github-action@v2
+        with:
+          file: lcov.info
+          flag-name: ${{ matrix.os }}
+          parallel: true
+
+  coverage-finished:
+    name: Coverage finished
+    needs: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true

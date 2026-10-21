@@ -25,9 +25,9 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ```
 
-CI runs the same checks on Linux and macOS. Tests cover both bundled English and custom dictionary fixtures. UI tests cover real compiler diagnostics, comment extraction, source positions, and crate-level suppression. Add focused regressions for changed behavior and review expected diagnostic output when updating UI fixtures.
+CI runs these checks on Linux and macOS. Add focused regressions for changed behavior and review expected compiler diagnostics when updating UI fixtures.
 
-Integration tests build the current lint once in the repository's reusable Dylint build directory and load that library into isolated temporary consumer workspaces. Consumer target directories remain independent so document and vocabulary freshness regressions still exercise real Cargo invalidation. CI caches the toolchain-specific Dylint driver and cancels superseded runs independently for each workflow and pull request.
+Integration tests reuse a built lint library but keep consumer target directories isolated to test real Cargo invalidation.
 
 ### Dylint
 
@@ -37,10 +37,25 @@ A separate Linux workflow runs the pinned upstream general-purpose lint collecti
 RUSTFLAGS="-D warnings" cargo dylint --all -- --all-targets --all-features --locked
 ```
 
-The metadata uses `path = "."`, so spelling checks exercise the current implementation rather than a previously published revision. Fix genuine typos and put accepted technical terms in the case-sensitive `.spellcheck.txt` vocabulary configured by `dylint.toml`. To regenerate candidates, move the vocabulary aside and run the same command without `RUSTFLAGS="-D warnings"`, review `.spellcheck.tmp`, and rename it to `.spellcheck.txt`. UI fixtures intentionally contain spelling errors and are checked separately by the diagnostic tests, not compiled as Cargo targets.
+The metadata uses `path = "."` to check the current implementation. Fix typos and add legitimate terms to the case-sensitive `.spellcheck.txt`. For regeneration, follow the README's [candidate workflow](README.md#generate-project-vocabulary), omitting `RUSTFLAGS="-D warnings"` while collecting. UI fixtures intentionally contain errors and run separately through diagnostic tests.
 
 Filesystem tests use isolated temporary directories. Narrow allowances on those tests suppress the general collection's `non_thread_safe_call_in_test` false positives without disabling the rule elsewhere.
+
+## Coverage
+
+The Coverage workflow runs on Linux and macOS and combines reports on [Coveralls](https://coveralls.io/github/dblock/dylint-spellcheck). It uses the GitHub Actions token, without a repository secret. Maintainers must enable the repository in Coveralls before uploads can succeed.
+
+The pinned toolchain includes `llvm-tools-preview`. To generate the same report locally:
+
+```sh
+cargo +stable install cargo-llvm-cov --locked
+cargo llvm-cov --all-features --workspace --locked --lcov --output-path lcov.info
+```
+
+Compiler subprocesses and separately built Dylint libraries may not contribute to coverage; covered test helpers do not prove their compiler-side paths are covered.
 
 ## Documentation and changelog
 
 Update the README when user-facing behavior or configuration changes. Keep Markdown prose paragraphs on single source lines. Add changelog entries under `[Unreleased]` with a linked PR number and contributor, using `[#123](https://github.com/dblock/dylint-spellcheck/pull/123): Description - [@contributor](https://github.com/contributor).` Fill in the assigned PR number after opening the PR.
+
+See [RELEASING.md](RELEASING.md) for releases.
