@@ -1,4 +1,6 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
+
+mod support;
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
@@ -35,17 +37,8 @@ fn root_package_owns_documents_and_prefers_a_binary_without_required_features() 
         "{}",
         diagnostics(&output)
     );
-    let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-        .current_dir(root)
-        .env("CARGO_TERM_COLOR", "never")
-        .args([
-            "dylint",
-            "--all",
-            "--",
-            "--workspace",
-            "--all-targets",
-            "--all-features",
-        ])
+    let output = support::lint_command(root)
+        .arg("--all-features")
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", diagnostics(&output));
@@ -60,11 +53,7 @@ fn root_package_owns_documents_and_prefers_a_binary_without_required_features() 
 }
 
 fn lint(root: &Path, strict: bool) -> std::process::Output {
-    let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
-    command
-        .current_dir(root)
-        .env("CARGO_TERM_COLOR", "never")
-        .args(["dylint", "--all", "--", "--workspace", "--all-targets"]);
+    let mut command = support::lint_command(root);
     if strict {
         command.env("RUSTFLAGS", "-D warnings");
     }

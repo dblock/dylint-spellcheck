@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
@@ -19,6 +23,11 @@ jobs:
       - name: Install toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
+      - name: Cache Dylint driver
+        uses: actions/cache@v4
+        with:
+          path: ~/.dylint_drivers
+          key: dylint-driver-${{ runner.os }}-${{ runner.arch }}-6.2.0-${{ hashFiles('rust-toolchain.toml') }}
       - name: Install Dylint
         run: cargo +stable install cargo-dylint dylint-link --version 6.2.0 --locked
       - run: cargo fmt --all -- --check
