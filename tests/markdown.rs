@@ -4,6 +4,56 @@ mod support;
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn scoped_suppression_controls_diagnostics_and_candidates() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"suppression\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let source = "#![allow(dead_code)]\n#[allow(spellcheck)]\n/// Docwrongword\nfn hidden() {\n    // Bodywrongword\n    #[warn(spellcheck)]\n    {\n        // Visiblewrongword\n    }\n}\nfn main() {\n    #[allow(spellcheck)]\n    {\n        // Blockwrongword\n    }\n}\n";
+    fs::write(
+        root.join("src/main.rs"),
+        format!("{source}\n#[allow(spellcheck)]\nmod external;\n"),
+    )
+    .unwrap();
+    fs::write(root.join("src/external.rs"), "// Externalwrongword\n").unwrap();
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n").unwrap();
+    fs::write(root.join("README.md"), "<!-- spellcheck:disable -->\nHiddenwrongword\n<!-- spellcheck:enable -->\nDocumentwrongword\nInlinewrongword <!-- spellcheck:disable -->\nTodowrongword <!-- spellcheck:todo -->\n").unwrap();
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("`Visiblewrongword`"), "{stderr}");
+    assert!(stderr.contains("`Documentwrongword`"), "{stderr}");
+    for word in [
+        "Docwrongword",
+        "Bodywrongword",
+        "Blockwrongword",
+        "Hiddenwrongword",
+        "Inlinewrongword",
+        "Todowrongword",
+        "Externalwrongword",
+    ] {
+        assert!(!stderr.contains(&format!("`{word}`")), "{stderr}");
+    }
+    assert_eq!(
+        fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+        "Documentwrongword\nVisiblewrongword\n"
+    );
+    fs::write(
+        root.join("src/main.rs"),
+        source.replace("warn(spellcheck)", "deny(spellcheck)"),
+    )
+    .unwrap();
+    let output = lint(root, false);
+    assert!(!output.status.success(), "{}", diagnostics(&output));
+    assert!(diagnostics(&output).contains("error: misspelled word: `Visiblewrongword`"));
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn root_package_owns_documents_and_prefers_a_binary_without_required_features() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

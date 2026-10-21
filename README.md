@@ -121,7 +121,23 @@ For reproducible builds, pin the library's Git dependency to a reviewed commit w
 
 ## Limitations
 
-Markdown parsing follows CommonMark with tables, strikethrough, task lists, and footnotes. HTML markup and HTML blocks are skipped; Markdown inside HTML blocks is not checked. Comments separated by Rust code, a blank source line, or a different comment kind are separate documents. Rustdoc attributes such as `#[doc = "..."]` are not checked. Technical tokens may need project vocabulary entries. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
+Markdown parsing follows CommonMark with tables, strikethrough, task lists, and footnotes. HTML markup and HTML blocks are skipped; Markdown inside HTML blocks is not checked. Comments separated by Rust code, a blank source line, or a different comment kind are separate documents. Rustdoc attributes such as `#[doc = "..."]` are not checked. Technical tokens may need project vocabulary entries. No autocorrection is performed.
+
+## Scoped suppression
+
+Use Rust lint attributes such as `#[allow(spellcheck)]` on items and blocks, or `#![allow(spellcheck)]` for a crate or module. Documentation comments belong to their item; ordinary comments inside an item or block use that enclosing scope. Ordinary comments preceding an item are outside that item's scope. Nested `#[warn(spellcheck)]` and `#[deny(spellcheck)]` follow Rust's normal lint-level rules.
+
+In standalone Markdown and Markdown within Rust comments, use HTML-comment directives:
+
+```markdown
+<!-- spellcheck:disable -->
+Intentional misspellings.
+<!-- spellcheck:enable -->
+Checked prose.
+Intentional example. <!-- spellcheck:todo -->
+```
+
+Standalone `disable` and `enable` directives control subsequent lines. A trailing `disable` or any `todo` suppresses only its own line. An optional reason follows ` -- ` inside the comment. Directives inside code blocks or inline code are ignored. In Rust comments, directive state is local to each combined comment group. Suppressed words produce neither diagnostics nor vocabulary candidates. Standalone documents use the owning target's crate-level lint setting, not individual Rust item attributes.
 
 ## Standalone Markdown
 

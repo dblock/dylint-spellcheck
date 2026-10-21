@@ -34,6 +34,8 @@ impl Prose {
 }
 
 pub fn prose(source: &str) -> Prose {
+    let source = without_suppressed_lines(source);
+    let source = source.as_str();
     let mut prose = Prose::default();
     let mut code_block = false;
     for (event, range) in Parser::new_ext(
@@ -81,9 +83,72 @@ pub fn prose(source: &str) -> Prose {
     prose
 }
 
+fn without_suppressed_lines(source: &str) -> String {
+    let mut directives = Vec::new();
+    for (event, range) in Parser::new(source).into_offset_iter() {
+        if let Event::Html(html) | Event::InlineHtml(html) = event
+            && let Some(body) = html.trim().strip_prefix("<!--")
+            && let Some(body) = body.strip_suffix("-->")
+        {
+            let action = body.split(" -- ").next().unwrap().trim();
+            if matches!(
+                action,
+                "spellcheck:disable" | "spellcheck:enable" | "spellcheck:todo"
+            ) {
+                directives.push((range.start, action.to_owned()));
+            }
+        }
+    }
+    let mut disabled = false;
+    let mut offset = 0;
+    let mut output = String::with_capacity(source.len());
+    for line in source.split_inclusive('\n') {
+        let mut suppress = disabled;
+        for (position, action) in &directives {
+            if *position < offset || *position >= offset + line.len() {
+                continue;
+            }
+            let inline = !source[offset..*position].trim().is_empty();
+            match action.as_str() {
+                "spellcheck:todo" => suppress = true,
+                "spellcheck:disable" if inline => suppress = true,
+                "spellcheck:disable" => {
+                    disabled = true;
+                    suppress = true;
+                }
+                "spellcheck:enable" if !inline => disabled = false,
+                _ => {}
+            }
+        }
+        if suppress {
+            output.extend(
+                line.bytes()
+                    .map(|byte| if byte == b'\n' { '\n' } else { ' ' }),
+            );
+        } else {
+            output.push_str(line);
+        }
+        offset += line.len();
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directives_suppress_only_their_scope_and_ignore_code() {
+        let source = "hello\n<!-- spellcheck:disable -->\ncafé hiddenword\n<!-- spellcheck:enable -->\nworld\nhiddenword <!-- spellcheck:todo -->\nhello\n```\n<!-- spellcheck:disable -->\n```\nvisibleword\n";
+        let prose = prose(source);
+        assert!(!prose.text.contains("hiddenword"));
+        assert!(prose.text.contains("world"));
+        let start = prose.text.find("visibleword").unwrap();
+        assert_eq!(
+            &source[prose.source_range(start..start + 11)],
+            "visibleword"
+        );
+    }
 
     #[test]
     fn keeps_prose_labels_and_entities_but_not_code_or_destinations() {
