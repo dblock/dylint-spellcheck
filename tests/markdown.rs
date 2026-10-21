@@ -87,7 +87,7 @@ fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
     std::os::unix::fs::symlink(root.join("vocabulary.txt"), root.join("alias.txt")).unwrap();
     fs::write(
         root.join("notes.TXT"),
-        "Projectword `helo`\nworld **wrld**\nhttps://ignoredword.test a@ignoredword.test\n",
+        "Projectword `helo`\nworld **wrld**\nhttps://ignoredword.test a@ignoredword.test\n{{ Plaintextwrongword }}\n",
     )
     .unwrap();
     let output = lint(root, false);
@@ -95,9 +95,10 @@ fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
     assert!(output.status.success(), "{stderr}");
     assert!(stderr.contains("notes.TXT:1:14"), "{stderr}");
     assert!(stderr.contains("notes.TXT:2:9"), "{stderr}");
+    assert!(stderr.contains("notes.TXT:4:4"), "{stderr}");
     assert_eq!(
         fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
-        "helo\nwrld\n"
+        "Plaintextwrongword\nhelo\nwrld\n"
     );
     fs::rename(root.join(".spellcheck.tmp"), root.join(".spellcheck.txt")).unwrap();
     let output = lint(root, false);
@@ -164,6 +165,80 @@ fn scoped_suppression_controls_diagnostics_and_candidates() {
     let output = lint(root, false);
     assert!(!output.status.success(), "{}", diagnostics(&output));
     assert!(diagnostics(&output).contains("error: misspelled word: `Visiblewrongword`"));
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn liquid_templates_are_excluded_from_markdown_diagnostics_and_candidates() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"liquid\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(
+        root.join("dylint.toml"),
+        "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("README.md"),
+        "---\ntitle: \"{{ Frontmatterwrongword }}\"\n---\n\
+         café {{\n  Expressionwrongword\n}} Afterliquidword\n\
+         {% if Conditionwrongword\n%} Tagvisibleword\n\
+         {% assign ignored = \"<!-- spellcheck:disable -->\" %}\n\
+         Stillvisibleword\n\
+         `{{ Inlinecodewrongword }}` [Linkvisibleword](https://ignoredword.test)\n\
+         ```liquid\n{{ Fencedwrongword }}\n```\nTailvisibleword\n",
+    )
+    .unwrap();
+
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    for word in [
+        "Afterliquidword",
+        "Tagvisibleword",
+        "Stillvisibleword",
+        "Linkvisibleword",
+        "Tailvisibleword",
+    ] {
+        assert!(stderr.contains(&format!("`{word}`")), "{stderr}");
+    }
+    for word in [
+        "Frontmatterwrongword",
+        "Expressionwrongword",
+        "Conditionwrongword",
+        "Inlinecodewrongword",
+        "Fencedwrongword",
+        "ignoredword",
+    ] {
+        assert!(!stderr.contains(&format!("`{word}`")), "{stderr}");
+    }
+    assert!(stderr.contains("README.md:6:4"), "{stderr}");
+
+    let candidates = fs::read_to_string(root.join(".spellcheck.tmp")).unwrap();
+    for word in [
+        "Afterliquidword",
+        "Tagvisibleword",
+        "Stillvisibleword",
+        "Linkvisibleword",
+        "Tailvisibleword",
+    ] {
+        assert!(candidates.lines().any(|candidate| candidate == word));
+    }
+    for word in [
+        "Frontmatterwrongword",
+        "Expressionwrongword",
+        "Conditionwrongword",
+        "Inlinecodewrongword",
+        "Fencedwrongword",
+    ] {
+        assert!(!candidates.lines().any(|candidate| candidate == word));
+    }
 }
 
 #[test]

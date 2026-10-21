@@ -67,7 +67,8 @@ pub fn prose_with_config(source: &str, config: &Config) -> Result<Prose, String>
 }
 
 pub fn prose(source: &str) -> Prose {
-    let source = without_suppressed_lines(source);
+    let source = without_liquid_templates(source);
+    let source = without_suppressed_lines(&source);
     let source = source.as_str();
     let mut prose = Prose::default();
     let mut code_block = false;
@@ -114,6 +115,64 @@ pub fn prose(source: &str) -> Prose {
         }
     }
     prose
+}
+
+fn without_liquid_templates(source: &str) -> String {
+    let mut code_ranges = Vec::new();
+    let mut code_block_start = None;
+    for (event, range) in Parser::new(source).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_block_start = Some(range.start),
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_block_start.take() {
+                    code_ranges.push(start..range.end);
+                }
+            }
+            Event::Code(_) => code_ranges.push(range),
+            _ => {}
+        }
+    }
+    code_ranges.sort_by_key(|range| range.start);
+
+    let bytes = source.as_bytes();
+    let mut masked = bytes.to_vec();
+    let mut offset = 0;
+    let mut code_index = 0;
+    while offset + 1 < bytes.len() {
+        while code_index < code_ranges.len() && code_ranges[code_index].end <= offset {
+            code_index += 1;
+        }
+        if let Some(range) = code_ranges.get(code_index)
+            && range.start <= offset
+        {
+            offset = range.end;
+            continue;
+        }
+
+        let (opening, closing) = match &bytes[offset..offset + 2] {
+            b"{{" => (b"{{".as_slice(), b"}}".as_slice()),
+            b"{%" => (b"{%".as_slice(), b"%}".as_slice()),
+            _ => {
+                offset += 1;
+                continue;
+            }
+        };
+        let end = bytes[offset + opening.len()..]
+            .windows(closing.len())
+            .position(|window| window == closing)
+            .map(|position| offset + opening.len() + position + closing.len());
+        if let Some(end) = end {
+            for byte in &mut masked[offset..end] {
+                if *byte != b'\n' && *byte != b'\r' {
+                    *byte = b' ';
+                }
+            }
+            offset = end;
+        } else {
+            offset += opening.len();
+        }
+    }
+    String::from_utf8(masked).expect("masking preserves valid UTF-8")
 }
 
 fn without_suppressed_lines(source: &str) -> String {
@@ -211,5 +270,41 @@ mod tests {
         assert_eq!(prose.text.trim(), "fj");
         let start = prose.text.find("fj").unwrap();
         assert_eq!(&source[prose.source_range(start..start + 2)], source);
+    }
+
+    #[test]
+    fn masks_multiline_liquid_and_preserves_unicode_source_offsets() {
+        let source = "café {{\n  Liquidwrongword\n}} héllo";
+        let prose = prose(source);
+        assert!(!prose.text.contains("Liquidwrongword"));
+        let start = prose.text.find("café").unwrap();
+        assert_eq!(
+            &source[prose.source_range(start..start + "café".len())],
+            "café"
+        );
+        let start = prose.text.find("héllo").unwrap();
+        assert_eq!(
+            &source[prose.source_range(start..start + "héllo".len())],
+            "héllo"
+        );
+    }
+
+    #[test]
+    fn masks_liquid_tags_before_suppression_directives_are_parsed() {
+        let source = "before {% assign x = \"<!-- spellcheck:disable -->\" %}\nvisibleword\n";
+        let prose = prose(source);
+        assert!(prose.text.contains("visibleword"));
+        assert!(!prose.text.contains("spellcheck:disable"));
+    }
+
+    #[test]
+    fn liquid_markup_does_not_change_markdown_code_exclusion() {
+        let source = "visible {{ hiddenword }} `{{ inlineword }}`\n\n```liquid\n{{ fencedword }}\n{{ unfinished\n```\n}} finalword";
+        let prose = prose(source);
+        assert!(prose.text.contains("visible"));
+        assert!(prose.text.contains("finalword"));
+        assert!(!prose.text.contains("hiddenword"));
+        assert!(!prose.text.contains("inlineword"));
+        assert!(!prose.text.contains("fencedword"));
     }
 }

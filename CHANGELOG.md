@@ -5,6 +5,7 @@
 ### Added
 
 - [#26](https://github.com/dblock/dylint-spellcheck/pull/26): Safely parse YAML front matter with recursive string checks, dotted field paths under `markdown.front_matter`, suppression, and precise escaped source spans - [@dblock](https://github.com/dblock).
+- [#24](https://github.com/dblock/dylint-spellcheck/pull/24): Exclude paired Liquid expressions and tags from Markdown spelling checks without evaluating templates, while preserving source locations and suppression scope - [@dblock](https://github.com/dblock).
 - [#23](https://github.com/dblock/dylint-spellcheck/pull/23): Check Rustdoc string attributes and included documentation with scoped suppression, source mapping, and duplicate diagnostic prevention - [@dblock](https://github.com/dblock).
 - [#11](https://github.com/dblock/dylint-spellcheck/pull/11): Check selected plain-text documents literally, automatically excluding configured dictionary and vocabulary resources - [@dblock](https://github.com/dblock).
 - [#10](https://github.com/dblock/dylint-spellcheck/pull/10): Respect scoped Rust lint attributes and Markdown suppression directives, excluding suppressed words from vocabulary candidates - [@dblock](https://github.com/dblock).

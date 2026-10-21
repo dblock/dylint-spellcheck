@@ -109,6 +109,8 @@ cargo dylint --all -- --workspace --all-targets --all-features
 
 Document edits, additions, and removals trigger Cargo rechecks without Rust source changes. Prefer narrow globs to avoid unnecessary directory scanning and rechecks.
 
+Liquid expressions (`{{ ... }}`) and tags (`{% ... %}`) are skipped in Markdown and Rust documentation, including multiline forms. Each ends at its first matching closing delimiter; unmatched openers remain literal. Only the delimited expression or tag is excluded, not surrounding prose. Templates are never evaluated or loaded, and directives inside them cannot change spelling suppression. Plain text remains literal.
+
 ### Workspace ownership
 
 One compilation target checks documents to avoid duplicates: the workspace-root package, or the member with the lexicographically first manifest path in a virtual workspace. Its library is preferred; otherwise its first binary by name without required features is preferred. Test-harness variants do not check documents. Select the owning target for document checks to run. Separate target triples may each report documents; crate-level suppression on the owner also suppresses document diagnostics and vocabulary candidates.
