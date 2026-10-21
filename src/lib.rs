@@ -1,6 +1,7 @@
 #![feature(rustc_private)]
 
 extern crate rustc_errors;
+extern crate rustc_hir;
 extern crate rustc_lexer;
 extern crate rustc_lint;
 extern crate rustc_session;
@@ -33,6 +34,21 @@ dylint_linting::declare_lint! {
 
 struct Spellcheck {
     documents: Vec<PathBuf>,
+    scopes: Vec<(Span, rustc_hir::HirId)>,
+}
+
+impl Spellcheck {
+    fn scope(&mut self, cx: &LateContext<'_>, id: rustc_hir::HirId, mut span: Span) {
+        if span.from_expansion() {
+            return;
+        }
+        for attribute in cx.tcx.hir_attrs(id) {
+            if let Some(doc_span) = attribute.is_doc_comment() {
+                span = span.with_lo(span.lo().min(doc_span.lo()));
+            }
+        }
+        self.scopes.push((span, id));
+    }
 }
 
 dylint_linting::impl_lint_pass!(Spellcheck => [SPELLCHECK]);
@@ -75,6 +91,7 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
     store.register_late_lint_pass(Box::new(move |_| {
         Box::new(Spellcheck {
             documents: documents.clone(),
+            scopes: Vec::new(),
         })
     }));
 }
@@ -100,14 +117,21 @@ fn check_prose(
     source_range: impl Fn(std::ops::Range<usize>) -> std::ops::Range<usize>,
     checker: &Checker,
     candidates: &mut BTreeSet<String>,
+    scopes: &[(Span, rustc_hir::HirId)],
 ) {
     for (range, word) in misspellings(&prose.text, checker) {
         let range = source_range(prose.source_range(range));
         let lo = start + BytePos(range.start.try_into().unwrap());
         let hi = start + BytePos(range.end.try_into().unwrap());
         let span = Span::new(lo, hi, SyntaxContext::root(), None);
-        cx.emit_span_lint(
+        let id = scopes
+            .iter()
+            .filter(|(scope, _)| scope.contains(span))
+            .min_by_key(|(scope, _)| scope.hi() - scope.lo())
+            .map_or(rustc_hir::CRATE_HIR_ID, |(_, id)| *id);
+        cx.tcx.emit_node_span_lint(
             SPELLCHECK,
+            id,
             span,
             DiagDecorator(|diag| {
                 diag.primary_message(format!("misspelled word: `{word}`"));
@@ -132,7 +156,60 @@ fn check_prose(
 }
 
 impl<'tcx> LateLintPass<'tcx> for Spellcheck {
-    fn check_crate(&mut self, cx: &LateContext<'tcx>) {
+    fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx rustc_hir::Item<'tcx>) {
+        self.scope(cx, item.hir_id(), item.span);
+        if let rustc_hir::ItemKind::Mod(_, module) = item.kind
+            && !item.span.from_expansion()
+        {
+            let source_map = cx.sess().source_map();
+            let file = source_map.lookup_source_file(module.spans.inner_span.lo());
+            if file.start_pos != source_map.lookup_source_file(item.span.lo()).start_pos {
+                self.scopes.push((
+                    Span::new(
+                        file.start_pos,
+                        file.end_position(),
+                        SyntaxContext::root(),
+                        None,
+                    ),
+                    item.hir_id(),
+                ));
+            }
+        }
+    }
+
+    fn check_trait_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx rustc_hir::TraitItem<'tcx>) {
+        self.scope(cx, item.hir_id(), item.span);
+    }
+
+    fn check_impl_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx rustc_hir::ImplItem<'tcx>) {
+        self.scope(cx, item.hir_id(), item.span);
+    }
+
+    fn check_foreign_item(
+        &mut self,
+        cx: &LateContext<'tcx>,
+        item: &'tcx rustc_hir::ForeignItem<'tcx>,
+    ) {
+        self.scope(cx, item.hir_id(), item.span);
+    }
+
+    fn check_field_def(&mut self, cx: &LateContext<'tcx>, field: &'tcx rustc_hir::FieldDef<'tcx>) {
+        self.scope(cx, field.hir_id, field.span);
+    }
+
+    fn check_variant(&mut self, cx: &LateContext<'tcx>, variant: &'tcx rustc_hir::Variant<'tcx>) {
+        self.scope(cx, variant.hir_id, variant.span);
+    }
+
+    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx rustc_hir::Expr<'tcx>) {
+        self.scope(cx, expr.hir_id, expr.span);
+    }
+
+    fn check_block(&mut self, cx: &LateContext<'tcx>, block: &'tcx rustc_hir::Block<'tcx>) {
+        self.scope(cx, block.hir_id, block.span);
+    }
+
+    fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
         let settings = match config::<Config>("dylint-spellcheck") {
             Ok(Some(settings)) => settings,
             Ok(None) => Config::default(),
@@ -184,6 +261,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                     |range| comment.source_range(range),
                     &checker,
                     &mut candidates,
+                    &self.scopes,
                 );
             }
         }
@@ -212,6 +290,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 |range| range,
                 &checker,
                 &mut candidates,
+                &[],
             );
         }
         for vocabulary in &checker.missing {
