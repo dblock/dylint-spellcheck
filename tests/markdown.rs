@@ -50,6 +50,45 @@ fn root_package_owns_documents_and_prefers_a_binary_without_required_features() 
         "{}",
         diagnostics(&output)
     );
+    fs::create_dir(root.join("dicts")).unwrap();
+    fs::write(root.join("dicts/en.aff"), "SET UTF-8\n").unwrap();
+    fs::write(root.join("dicts/en.dic"), "1\nhelo\n").unwrap();
+    fs::write(
+        root.join("dylint.toml"),
+        "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \"dicts\"]\n",
+    )
+    .unwrap();
+    let output = lint(root, false);
+    assert!(output.status.success(), "{}", diagnostics(&output));
+    assert!(
+        !diagnostics(&output).contains("misspelled word"),
+        "{}",
+        diagnostics(&output)
+    );
+    fs::write(root.join("README.md"), "hello helo wrld\n").unwrap();
+    let output = lint(root, false);
+    assert!(
+        diagnostics(&output).contains("misspelled word: `wrld`"),
+        "{}",
+        diagnostics(&output)
+    );
+    // New pairs and edits must invalidate checks without Rust source changes.
+    fs::write(root.join("dicts/de.aff"), "SET UTF-8\n").unwrap();
+    fs::write(root.join("dicts/de.dic"), "1\nwrld\n").unwrap();
+    let output = lint(root, false);
+    assert!(output.status.success(), "{}", diagnostics(&output));
+    assert!(
+        !diagnostics(&output).contains("misspelled word"),
+        "{}",
+        diagnostics(&output)
+    );
+    fs::write(root.join("dicts/en.dic"), "1\nworld\n").unwrap();
+    let output = lint(root, false);
+    assert!(
+        diagnostics(&output).contains("misspelled word: `helo`"),
+        "{}",
+        diagnostics(&output)
+    );
 }
 
 fn lint(root: &Path, strict: bool) -> std::process::Output {
@@ -84,7 +123,7 @@ fn documents_recheck_without_source_edits_and_report_once_per_workspace() {
     }
     fs::write(root.join("first/src/lib.rs"), "").unwrap();
     fs::create_dir(root.join("docs")).unwrap();
-    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"README.md\", \"./README.md\", \"docs/**/*.md\", \"future/**/*.markdown\"]\nexclude = [\"docs/generated/**\"]\nvocabulary_files = [\".spellcheck.txt\"]\n").unwrap();
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"README.md\", \"./README.md\", \"docs/**/*.md\", \"future/**/*.markdown\"]\nexclude = [\"docs/generated/**\"]\n[dylint-spellcheck.dictionaries]\nen = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n").unwrap();
     fs::write(root.join(".spellcheck.txt"), "Kotoshu\n").unwrap();
     let readme = "# hello\n\nKotoshu [world](wrongword) `typpo`\n\n```rust\nwrongword\n```\n\n    wrongword\n\n<!-- typpo -->\n";
     fs::write(root.join("README.md"), readme).unwrap();

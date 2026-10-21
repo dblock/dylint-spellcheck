@@ -1,2 +1,2 @@
 [dylint-spellcheck]
-vocabulary_files = [".spellcheck.txt"]
+dictionaries = ["crate:dylint-spellcheck/data/en", ".spellcheck.txt"]
