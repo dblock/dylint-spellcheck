@@ -9,11 +9,12 @@ extern crate rustc_span;
 use dylint_linting::config;
 use regex::Regex;
 use rustc_errors::DiagDecorator;
-use rustc_lexer::{FrontmatterAllowed, TokenKind, tokenize};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_span::{BytePos, Span, Symbol, SyntaxContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::LazyLock};
 
+mod comments;
+mod markdown;
 mod spelling;
 use spelling::{Checker, Config};
 
@@ -21,7 +22,7 @@ dylint_linting::dylint_library!();
 
 dylint_linting::declare_lint! {
     /// Checks words in Rust line and block comments using a configured Hunspell dictionary.
-    /// URLs, email addresses and backtick-delimited code are skipped.
+    /// Markdown code, link destinations, URLs and email addresses are skipped.
     /// This source-scanning lint currently supports crate-level suppression only.
     pub SPELLCHECK,
     Warn,
@@ -68,19 +69,16 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
 }
 
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?s)```.*?```|`[^`]*`|https?://[^\s<>]+|www\.[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}",
-    )
-    .unwrap()
+    Regex::new(r"https?://[^\s<>]+|www\.[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}").unwrap()
 });
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{L}+(?:['’]\p{L}+)*").unwrap());
 
-fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(usize, &'a str)> {
+fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(std::ops::Range<usize>, &'a str)> {
     let skipped: Vec<_> = SKIP.find_iter(text).map(|m| m.range()).collect();
     WORD.find_iter(text)
         .filter(|word| !skipped.iter().any(|range| range.contains(&word.start())))
         .filter(|word| !checker.correct(word.as_str()))
-        .map(|word| (word.start(), word.as_str()))
+        .map(|word| (word.range(), word.as_str()))
         .collect()
 }
 
@@ -128,21 +126,12 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
             let Some(source) = file.src.as_ref() else {
                 continue;
             };
-            let mut end = 0;
-            for token in tokenize(source, FrontmatterAllowed::Yes) {
-                let start = end;
-                end += token.len as usize;
-                let text_end = match token.kind {
-                    TokenKind::LineComment { .. } => end,
-                    TokenKind::BlockComment {
-                        terminated: true, ..
-                    } => end - 2,
-                    _ => continue,
-                };
-                let text_start = start + 2;
-                for (offset, word) in misspellings(&source[text_start..text_end], &checker) {
-                    let lo = file.start_pos + BytePos((text_start + offset).try_into().unwrap());
-                    let hi = lo + BytePos(word.len().try_into().unwrap());
+            for comment in comments::comments(source) {
+                let prose = markdown::prose(&comment.text);
+                for (range, word) in misspellings(&prose.text, &checker) {
+                    let range = comment.source_range(prose.source_range(range));
+                    let lo = file.start_pos + BytePos(range.start.try_into().unwrap());
+                    let hi = file.start_pos + BytePos(range.end.try_into().unwrap());
                     let span = Span::new(lo, hi, SyntaxContext::root(), None);
                     cx.emit_span_lint(
                         SPELLCHECK,
@@ -217,11 +206,43 @@ mod tests {
 
     #[test]
     fn checks_words_with_byte_offsets_and_ignores_addresses_and_code() {
-        let text = "hello café helo `typpo` https://typpo.test a@typpo.test";
-        assert_eq!(misspellings(text, &checker()), vec![(12, "helo")]);
+        let prose = markdown::prose("hello café helo `typpo` https://typpo.test a@typpo.test");
+        let errors = misspellings(&prose.text, &checker());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].1, "helo");
+        assert_eq!(prose.source_range(errors[0].0.clone()), 12..16);
         let mut checker = checker();
         checker.ignored_words.insert("helo".into());
         assert!(misspellings("helo", &checker).is_empty());
+    }
+
+    #[test]
+    fn markdown_words_map_back_to_original_comment_bytes() {
+        let source = "    /// café [h&#101;lo](wrongword)\n    /// ```rust\n    /// typpo\n    /// ```\n    /// **wrld**\nfn main() {}";
+        let errors: Vec<_> = comments::comments(source)
+            .into_iter()
+            .flat_map(|comment| {
+                let prose = markdown::prose(&comment.text);
+                misspellings(&prose.text, &checker())
+                    .into_iter()
+                    .map(|(range, word)| {
+                        (
+                            comment.source_range(prose.source_range(range)),
+                            word.to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(errors.len(), 2);
+        assert_eq!(
+            errors[0],
+            (
+                source.find("h&#101;lo").unwrap()..source.find("h&#101;lo").unwrap() + 9,
+                "helo".into()
+            )
+        );
+        assert_eq!(&source[errors[1].0.clone()], "wrld");
     }
 
     #[test]

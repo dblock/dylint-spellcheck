@@ -2,7 +2,7 @@
 
 A minimal [Dylint](https://github.com/trailofbits/dylint) spelling lint powered by [kotoshu-rs](https://github.com/kotoshu/kotoshu-rs).
 
-Checks Rust line comments, documentation comments, and block comments using bundled English, reporting misspelled words with source locations and up to three suggestions. Strings and identifiers are not checked. URLs, email addresses, and backtick-delimited code within a comment are skipped.
+Checks Rust line comments, documentation comments, and block comments using bundled English, reporting misspelled words with source locations and up to three suggestions. Comments are parsed as Markdown: prose, headings, link labels, and image descriptions are checked; inline code, fenced and indented code blocks, link destinations, HTML, URLs, and email addresses are skipped. Adjacent line comments of the same kind are combined, so Rustdoc code fences can span lines. Strings and identifiers are not checked.
 
 ## Setup
 
@@ -93,7 +93,7 @@ For reproducible builds, pin the library's Git dependency to a reviewed commit w
 
 ## Limitations
 
-This first version scans comments as plain text, not Markdown prose. Backtick spans can only be skipped within one comment token; fenced blocks spanning several `//` lines are not recognized. Technical tokens may need `ignored_words`. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
+Markdown parsing follows CommonMark with tables, strikethrough, task lists, and footnotes. HTML markup and HTML blocks are skipped; Markdown inside HTML blocks is not checked. Comments separated by Rust code, a blank source line, or a different comment kind are separate documents. Rustdoc attributes such as `#[doc = "..."]` and standalone documents are not checked yet. Technical tokens may need project vocabulary entries. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
 
 ## Generate project vocabulary
 
