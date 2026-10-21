@@ -95,12 +95,6 @@ For reproducible builds, pin the library's Git dependency to a reviewed commit w
 
 This first version scans comments as plain text, not Markdown prose. Backtick spans can only be skipped within one comment token; fenced blocks spanning several `//` lines are not recognized. Technical tokens may need `ignored_words`. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
 
-## Development
+## Contributing
 
-```sh
-cargo fmt --all -- --check
-cargo clippy --all-targets --locked -- -D warnings
-cargo test --locked
-```
-
-Tests cover both bundled English and custom dictionary fixtures. UI tests cover real compiler diagnostics, comment extraction, source positions, and crate-level suppression.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks.
