@@ -5,14 +5,15 @@ extern crate rustc_lexer;
 extern crate rustc_span;
 
 use dylint_linting::config;
-use kotoshu::dict::Dictionary;
 use regex::Regex;
 use rustc_errors::DiagDecorator;
 use rustc_lexer::{FrontmatterAllowed, TokenKind, tokenize};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_span::{BytePos, Span, SyntaxContext};
-use serde::Deserialize;
-use std::{collections::HashSet, path::PathBuf, sync::LazyLock};
+use std::{path::PathBuf, sync::LazyLock};
+
+mod spelling;
+use spelling::{Checker, Config};
 
 dylint_linting::declare_late_lint! {
     /// Checks words in Rust line and block comments using a configured Hunspell dictionary.
@@ -23,15 +24,6 @@ dylint_linting::declare_late_lint! {
     "misspelled words in comments"
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    aff: PathBuf,
-    dic: PathBuf,
-    #[serde(default)]
-    ignored_words: HashSet<String>,
-}
-
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?s)```.*?```|`[^`]*`|https?://[^\s<>]+|www\.[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}",
@@ -40,15 +32,11 @@ static SKIP: LazyLock<Regex> = LazyLock::new(|| {
 });
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{L}+(?:['’]\p{L}+)*").unwrap());
 
-fn misspellings<'a>(
-    text: &'a str,
-    dictionary: &Dictionary,
-    ignored: &HashSet<String>,
-) -> Vec<(usize, &'a str)> {
+fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(usize, &'a str)> {
     let skipped: Vec<_> = SKIP.find_iter(text).map(|m| m.range()).collect();
     WORD.find_iter(text)
         .filter(|word| !skipped.iter().any(|range| range.contains(&word.start())))
-        .filter(|word| !ignored.contains(word.as_str()) && !dictionary.correct(word.as_str()))
+        .filter(|word| !checker.correct(word.as_str()))
         .map(|word| (word.start(), word.as_str()))
         .collect()
 }
@@ -57,10 +45,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
     fn check_crate(&mut self, cx: &LateContext<'tcx>) {
         let settings = match config::<Config>("dylint-spellcheck") {
             Ok(Some(settings)) => settings,
-            Ok(None) => {
-                cx.sess().dcx().err("dylint-spellcheck requires [dylint-spellcheck] with aff and dic paths in dylint.toml");
-                return;
-            }
+            Ok(None) => Config::default(),
             Err(error) => {
                 cx.sess()
                     .dcx()
@@ -68,16 +53,34 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 return;
             }
         };
-        let dictionary = match Dictionary::load(&settings.aff, &settings.dic) {
-            Ok(dictionary) => dictionary,
+        let root = match configuration_root(cx) {
+            Ok(root) => root,
             Err(error) => {
-                cx.sess()
-                    .dcx()
-                    .err(format!("could not load spelling dictionary: {error}"));
+                cx.sess().dcx().err(error);
                 return;
             }
         };
+        let checker = match Checker::load(settings, &root) {
+            Ok(checker) => checker,
+            Err(error) => {
+                cx.sess().dcx().err(error);
+                return;
+            }
+        };
+        for path in &checker.files {
+            if let Err(error) = cx.sess().source_map().load_file(path) {
+                cx.sess().dcx().err(format!(
+                    "could not track dictionary input {}: {error}",
+                    path.display()
+                ));
+                return;
+            }
+        }
         for file in cx.sess().source_map().files().iter() {
+            if !matches!(&file.name, rustc_span::FileName::Real(name) if name.local_path().is_some_and(|path| path.extension().is_some_and(|extension| extension == "rs")))
+            {
+                continue;
+            }
             let Some(source) = file.src.as_ref() else {
                 continue;
             };
@@ -93,11 +96,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                     _ => continue,
                 };
                 let text_start = start + 2;
-                for (offset, word) in misspellings(
-                    &source[text_start..text_end],
-                    &dictionary,
-                    &settings.ignored_words,
-                ) {
+                for (offset, word) in misspellings(&source[text_start..text_end], &checker) {
                     let lo = file.start_pos + BytePos((text_start + offset).try_into().unwrap());
                     let hi = lo + BytePos(word.len().try_into().unwrap());
                     let span = Span::new(lo, hi, SyntaxContext::root(), None);
@@ -106,13 +105,13 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                         span,
                         DiagDecorator(|diag| {
                             diag.primary_message(format!("misspelled word: `{word}`"));
-                            let suggestions = dictionary.suggest(word, 3);
+                            let suggestions = checker.suggestions(word);
                             if !suggestions.is_empty() {
                                 diag.help(format!(
                                     "did you mean {}?",
                                     suggestions
                                         .iter()
-                                        .map(|s| format!("`{}`", s.word))
+                                        .map(|s| format!("`{s}`"))
                                         .collect::<Vec<_>>()
                                         .join(", ")
                                 ));
@@ -125,14 +124,36 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
     }
 }
 
+fn configuration_root(cx: &LateContext<'_>) -> Result<PathBuf, String> {
+    let source = cx
+        .sess()
+        .local_crate_source_file()
+        .and_then(rustc_span::RealFileName::into_local_path);
+    let directory = source
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    cargo_metadata::MetadataCommand::new()
+        .current_dir(directory)
+        .no_deps()
+        .exec()
+        .map(|metadata| metadata.workspace_root.into_std_path_buf())
+        .map_err(|error| format!("could not resolve spelling configuration directory: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn dictionary() -> Dictionary {
-        Dictionary::load_from_sources(
-            include_str!("../tests/fixtures/en.aff"),
-            include_str!("../tests/fixtures/en.dic"),
+    fn checker() -> Checker {
+        Checker::load(
+            Config {
+                aff: Some("tests/fixtures/en.aff".into()),
+                dic: Some("tests/fixtures/en.dic".into()),
+                ..Config::default()
+            },
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
         )
         .unwrap()
     }
@@ -140,11 +161,10 @@ mod tests {
     #[test]
     fn checks_words_with_byte_offsets_and_ignores_addresses_and_code() {
         let text = "hello café helo `typpo` https://typpo.test a@typpo.test";
-        assert_eq!(
-            misspellings(text, &dictionary(), &HashSet::new()),
-            vec![(12, "helo")]
-        );
-        assert!(misspellings("helo", &dictionary(), &HashSet::from(["helo".into()])).is_empty());
+        assert_eq!(misspellings(text, &checker()), vec![(12, "helo")]);
+        let mut checker = checker();
+        checker.ignored_words.insert("helo".into());
+        assert!(misspellings("helo", &checker).is_empty());
     }
 
     #[test]

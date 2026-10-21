@@ -238,6 +238,7 @@ dependencies = [
 name = "dylint-spellcheck"
 version = "0.1.0"
 dependencies = [
+ "cargo_metadata",
  "dylint_linting",
  "dylint_testing",
  "kotoshu",
