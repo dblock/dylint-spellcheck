@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- [#25](https://github.com/dblock/dylint-spellcheck/pull/25): Improve prose word boundaries for Unicode combining marks, apostrophes, and technical numeric/underscore tokens while preserving source ranges - [@dblock](https://github.com/dblock).
+
 ### Added
 
 - [#26](https://github.com/dblock/dylint-spellcheck/pull/26): Safely parse YAML front matter with recursive string checks, dotted field paths under `markdown.front_matter`, suppression, and precise escaped source spans - [@dblock](https://github.com/dblock).

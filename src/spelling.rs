@@ -328,11 +328,14 @@ impl Checker {
     }
 
     pub fn correct(&self, word: &str) -> bool {
+        let straight = word.contains('’').then(|| word.replace('’', "'"));
         self.vocabulary.contains(word)
-            || self
-                .dictionaries
-                .iter()
-                .any(|dictionary| dictionary.correct(word))
+            || self.dictionaries.iter().any(|dictionary| {
+                dictionary.correct(word)
+                    || straight
+                        .as_deref()
+                        .is_some_and(|word| dictionary.correct(word))
+            })
     }
 
     pub fn collect_candidates(
@@ -378,6 +381,8 @@ impl Checker {
     }
 
     pub fn suggestions(&self, word: &str) -> Vec<String> {
+        let straight = word.contains('’').then(|| word.replace('’', "'"));
+        let word = straight.as_deref().unwrap_or(word);
         let mut suggestions = Vec::new();
         for dictionary in &self.dictionaries {
             for suggestion in dictionary.suggest(word, 3) {
@@ -401,6 +406,10 @@ mod tests {
     fn defaults_to_real_english_and_reports_misspellings() {
         let checker = Checker::load(Config::default(), Path::new(".")).unwrap();
         assert!(checker.correct("spelling"));
+        for word in ["can't", "can’t", "it's", "it’s", "world's", "world’s"] {
+            assert!(checker.correct(word), "{word}");
+        }
+        assert!(!checker.correct("wrld’s"));
         assert!(!checker.correct("speling"));
         assert!(checker.suggestions("speling").contains(&"spelling".into()));
     }
