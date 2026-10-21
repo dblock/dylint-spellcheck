@@ -116,6 +116,7 @@ mod tests {
     use std::fs;
 
     #[test]
+    #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
     fn selects_patterns_excludes_files_and_tracks_empty_or_missing_directories() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();

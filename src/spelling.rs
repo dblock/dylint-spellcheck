@@ -213,6 +213,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
     fn collects_sorted_candidates_without_losing_concurrent_writes() {
         let directory = tempfile::tempdir().unwrap();
         let vocabulary = directory.path().join(".spellcheck.txt");
@@ -238,6 +239,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
     fn missing_vocabulary_collects_but_existing_vocabulary_is_read_only() {
         let directory = tempfile::tempdir().unwrap();
         let settings = || Config {
@@ -267,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
     fn reports_candidate_write_failures() {
         let directory = tempfile::tempdir().unwrap();
         fs::create_dir(directory.path().join("words.tmp")).unwrap();
