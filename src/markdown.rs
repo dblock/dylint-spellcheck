@@ -1,6 +1,21 @@
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
 
+pub fn supports(path: &std::path::Path) -> Result<(), String> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension)
+            if extension.eq_ignore_ascii_case("md")
+                || extension.eq_ignore_ascii_case("markdown") =>
+        {
+            Ok(())
+        }
+        _ => Err(format!(
+            "unsupported spelling input format: {} (supported: .md, .markdown)",
+            path.display()
+        )),
+    }
+}
+
 #[derive(Default)]
 pub struct Prose {
     pub text: String,

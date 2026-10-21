@@ -13,12 +13,13 @@ pub struct Config {
     pub aff: Option<PathBuf>,
     pub dic: Option<PathBuf>,
     pub vocabulary_files: Vec<PathBuf>,
-    pub ignored_words: HashSet<String>,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 pub struct Checker {
     dictionary: Dictionary,
-    pub ignored_words: HashSet<String>,
+    vocabulary: HashSet<String>,
     pub files: Vec<PathBuf>,
     pub missing: Vec<PathBuf>,
 }
@@ -39,7 +40,7 @@ impl Checker {
             _ => return Err("aff and dic must be configured together".into()),
         }
         .map_err(|error| format!("could not load spelling dictionary: {error}"))?;
-        let mut ignored_words = settings.ignored_words;
+        let mut vocabulary = HashSet::new();
         for file in settings.vocabulary_files {
             let path = root.join(file);
             let text = match fs::read_to_string(&path) {
@@ -69,21 +70,21 @@ impl Checker {
             };
             for line in text.lines().map(str::trim) {
                 if !line.is_empty() && !line.starts_with('#') {
-                    ignored_words.insert(line.to_owned());
+                    vocabulary.insert(line.to_owned());
                 }
             }
             files.push(path);
         }
         Ok(Self {
             dictionary,
-            ignored_words,
+            vocabulary,
             files,
             missing,
         })
     }
 
     pub fn correct(&self, word: &str) -> bool {
-        self.ignored_words.contains(word) || self.dictionary.correct(word)
+        self.vocabulary.contains(word) || self.dictionary.correct(word)
     }
 
     pub fn collect_candidates(

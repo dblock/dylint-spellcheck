@@ -14,6 +14,8 @@ use rustc_span::{BytePos, Span, Symbol, SyntaxContext};
 use std::{collections::BTreeSet, path::PathBuf, sync::LazyLock};
 
 mod comments;
+mod documents;
+mod files;
 mod markdown;
 mod spelling;
 use spelling::{Checker, Config};
@@ -21,26 +23,31 @@ use spelling::{Checker, Config};
 dylint_linting::dylint_library!();
 
 dylint_linting::declare_lint! {
-    /// Checks words in Rust line and block comments using a configured Hunspell dictionary.
+    /// Checks Rust comments and configured Markdown documents using a Hunspell dictionary.
     /// Markdown code, link destinations, URLs and email addresses are skipped.
     /// This source-scanning lint currently supports crate-level suppression only.
     pub SPELLCHECK,
     Warn,
-    "misspelled words in comments"
+    "misspelled words in comments and Markdown"
 }
 
-dylint_linting::declare_lint_pass!(Spellcheck => [SPELLCHECK]);
+struct Spellcheck {
+    documents: Vec<PathBuf>,
+}
+
+dylint_linting::impl_lint_pass!(Spellcheck => [SPELLCHECK]);
 
 #[unsafe(no_mangle)]
 pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::LintStore) {
     dylint_linting::init_config(sess);
     store.register_lints(&[SPELLCHECK]);
     // Dep-info is written before late lint passes; register external inputs now.
-    let inputs = (|| -> Result<(), String> {
+    let inputs = (|| -> Result<Vec<PathBuf>, String> {
         let settings = config::<Config>("dylint-spellcheck")
             .map_err(|error| format!("invalid dylint-spellcheck configuration: {error}"))?
             .unwrap_or_default();
-        let root = configuration_root(sess)?;
+        let metadata = workspace_metadata(sess)?;
+        let root = metadata.workspace_root.as_std_path();
         for path in settings
             .vocabulary_files
             .iter()
@@ -59,13 +66,20 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
                     .insert(Symbol::intern(&parent.to_string_lossy()));
             }
         }
-        Ok(())
+        documents::files(sess, &metadata, &settings.include, &settings.exclude)
     })();
-    if let Err(error) = inputs {
-        sess.dcx().err(error);
-        return;
-    }
-    store.register_late_lint_pass(Box::new(|_| Box::new(Spellcheck)));
+    let documents = match inputs {
+        Ok(documents) => documents,
+        Err(error) => {
+            sess.dcx().err(error);
+            return;
+        }
+    };
+    store.register_late_lint_pass(Box::new(move |_| {
+        Box::new(Spellcheck {
+            documents: documents.clone(),
+        })
+    }));
 }
 
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
@@ -80,6 +94,44 @@ fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(std::ops::Range<us
         .filter(|word| !checker.correct(word.as_str()))
         .map(|word| (word.range(), word.as_str()))
         .collect()
+}
+
+fn check_prose(
+    cx: &LateContext<'_>,
+    prose: &markdown::Prose,
+    start: BytePos,
+    source_range: impl Fn(std::ops::Range<usize>) -> std::ops::Range<usize>,
+    checker: &Checker,
+    candidates: &mut BTreeSet<String>,
+) {
+    for (range, word) in misspellings(&prose.text, checker) {
+        let range = source_range(prose.source_range(range));
+        let lo = start + BytePos(range.start.try_into().unwrap());
+        let hi = start + BytePos(range.end.try_into().unwrap());
+        let span = Span::new(lo, hi, SyntaxContext::root(), None);
+        cx.emit_span_lint(
+            SPELLCHECK,
+            span,
+            DiagDecorator(|diag| {
+                diag.primary_message(format!("misspelled word: `{word}`"));
+                if !checker.missing.is_empty() {
+                    candidates.insert(word.to_owned());
+                    return;
+                }
+                let suggestions = checker.suggestions(word);
+                if !suggestions.is_empty() {
+                    diag.help(format!(
+                        "did you mean {}?",
+                        suggestions
+                            .iter()
+                            .map(|s| format!("`{s}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }),
+        );
+    }
 }
 
 impl<'tcx> LateLintPass<'tcx> for Spellcheck {
@@ -128,35 +180,42 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
             };
             for comment in comments::comments(source) {
                 let prose = markdown::prose(&comment.text);
-                for (range, word) in misspellings(&prose.text, &checker) {
-                    let range = comment.source_range(prose.source_range(range));
-                    let lo = file.start_pos + BytePos(range.start.try_into().unwrap());
-                    let hi = file.start_pos + BytePos(range.end.try_into().unwrap());
-                    let span = Span::new(lo, hi, SyntaxContext::root(), None);
-                    cx.emit_span_lint(
-                        SPELLCHECK,
-                        span,
-                        DiagDecorator(|diag| {
-                            diag.primary_message(format!("misspelled word: `{word}`"));
-                            if !checker.missing.is_empty() {
-                                candidates.insert(word.to_owned());
-                                return;
-                            }
-                            let suggestions = checker.suggestions(word);
-                            if !suggestions.is_empty() {
-                                diag.help(format!(
-                                    "did you mean {}?",
-                                    suggestions
-                                        .iter()
-                                        .map(|s| format!("`{s}`"))
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                ));
-                            }
-                        }),
-                    );
-                }
+                check_prose(
+                    cx,
+                    &prose,
+                    file.start_pos,
+                    |range| comment.source_range(range),
+                    &checker,
+                    &mut candidates,
+                );
             }
+        }
+        for path in &self.documents {
+            let file = match cx.sess().source_map().load_file(path) {
+                Ok(file) => file,
+                Err(error) => {
+                    cx.sess().dcx().err(format!(
+                        "could not read Markdown document {}: {error}",
+                        path.display()
+                    ));
+                    return;
+                }
+            };
+            let Some(source) = &file.src else {
+                cx.sess().dcx().err(format!(
+                    "Markdown document has no source text: {}",
+                    path.display()
+                ));
+                return;
+            };
+            check_prose(
+                cx,
+                &markdown::prose(source),
+                file.start_pos,
+                |range| range,
+                &checker,
+                &mut candidates,
+            );
         }
         for vocabulary in &checker.missing {
             match Checker::collect_candidates(vocabulary, &candidates) {
@@ -172,6 +231,10 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
 }
 
 fn configuration_root(sess: &rustc_session::Session) -> Result<PathBuf, String> {
+    workspace_metadata(sess).map(|metadata| metadata.workspace_root.into_std_path_buf())
+}
+
+fn workspace_metadata(sess: &rustc_session::Session) -> Result<cargo_metadata::Metadata, String> {
     let source = sess
         .local_crate_source_file()
         .and_then(rustc_span::RealFileName::into_local_path);
@@ -184,7 +247,6 @@ fn configuration_root(sess: &rustc_session::Session) -> Result<PathBuf, String> 
         .current_dir(directory)
         .no_deps()
         .exec()
-        .map(|metadata| metadata.workspace_root.into_std_path_buf())
         .map_err(|error| format!("could not resolve spelling configuration directory: {error}"))
 }
 
@@ -211,9 +273,6 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].1, "helo");
         assert_eq!(prose.source_range(errors[0].0.clone()), 12..16);
-        let mut checker = checker();
-        checker.ignored_words.insert("helo".into());
-        assert!(misspellings("helo", &checker).is_empty());
     }
 
     #[test]
@@ -249,9 +308,10 @@ mod tests {
     fn ui() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let settings = format!(
-            "[dylint-spellcheck]\naff = {:?}\ndic = {:?}\nignored_words = [\"Kotoshu\"]\n",
+            "[dylint-spellcheck]\naff = {:?}\ndic = {:?}\nvocabulary_files = [{:?}]\n",
             root.join("tests/fixtures/en.aff"),
             root.join("tests/fixtures/en.dic"),
+            root.join("tests/fixtures/vocabulary.txt"),
         );
         dylint_testing::ui::Test::src_base("dylint_spellcheck", "ui")
             .dylint_toml(&settings)
