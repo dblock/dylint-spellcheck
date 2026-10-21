@@ -16,6 +16,7 @@ dylint_linting = "=6.2.0"
 kotoshu = { git = "https://github.com/kotoshu/kotoshu-rs", rev = "11a43c5f30ae98f31e2cae303c5d695491940c4e", default-features = false }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
+tempfile = "3"
 
 [dev-dependencies]
 dylint_testing = "=6.2.0"

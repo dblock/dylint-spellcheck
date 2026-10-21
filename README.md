@@ -87,13 +87,44 @@ Create `.spellcheck.txt` with any project-specific words, or omit `vocabulary_fi
 
 An explicit `aff`/`dic` pair **replaces bundled English**, rather than adding another language alongside it. Only one Hunspell dictionary can be active at a time; simultaneous English and German dictionaries are not currently supported. Vocabulary files can supplement that dictionary with individual words, but do not provide another language's affix rules.
 
-Relative paths resolve from the workspace root containing `dylint.toml`, including when compiling workspace members from another working directory. Absolute paths are supported. A missing vocabulary file, unreadable dictionary, incomplete `aff`/`dic` pair, or invalid configuration fails explicitly. Dictionary and vocabulary edits invalidate compiler checks. No resources are downloaded at runtime.
+Relative paths resolve from the workspace root containing `dylint.toml`, including when compiling workspace members from another working directory. Absolute paths are supported. A missing vocabulary file triggers candidate collection as described below; unreadable files, missing parent directories, an incomplete `aff`/`dic` pair, or invalid configuration fail explicitly. Dictionary and vocabulary edits invalidate compiler checks. No resources are downloaded at runtime.
 
 For reproducible builds, pin the library's Git dependency to a reviewed commit with `rev`. Dylint installs the library's pinned nightly toolchain; this does not change your project's normal toolchain.
 
 ## Limitations
 
 This first version scans comments as plain text, not Markdown prose. Backtick spans can only be skipped within one comment token; fenced blocks spanning several `//` lines are not recognized. Technical tokens may need `ignored_words`. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
+
+## Generate project vocabulary
+
+Declare a vocabulary file that does not exist yet:
+
+```toml
+[dylint-spellcheck]
+vocabulary_files = [".spellcheck.txt"]
+```
+
+Run Dylint normally, selecting the full intended workspace and feature scope:
+
+```sh
+cargo dylint --all -- --workspace --all-targets --all-features
+```
+
+```text
+note: Collected spelling candidates in .spellcheck.tmp. Review for genuine typos before renaming to .spellcheck.txt. This list accumulates across runs; delete it before a fresh collection.
+```
+
+While the declared vocabulary is missing, spelling diagnostics remain active but suggestions are not computed. Unknown words are accumulated, sorted, and deduplicated in the sibling `.tmp` file, preserving capitalization. Concurrent compiler processes coordinate writes using a sibling `.tmp.lock` file. Neither the temporary vocabulary nor its lock file needs to be committed. No source or configuration files are changed, and the declared vocabulary is never created automatically.
+
+**Review `.spellcheck.tmp`: fix genuine typos in source and remove them from the candidate list.** Then promote it:
+
+```sh
+mv .spellcheck.tmp .spellcheck.txt
+```
+
+Once the declared vocabulary exists, it is only read, normal suggestions resume, and candidate collection stops. Its appearance is tracked so Cargo rechecks affected targets after promotion. Other existing vocabulary files and explicit ignored words are honored during collection, as is crate-level spelling suppression.
+
+The temporary file is an accumulating candidate list, not an exact snapshot: words from older runs remain until you remove them. To regenerate, remove or move the accepted vocabulary and delete its `.tmp` file, then rerun Dylint. Missing vocabulary paths must end in `.txt` and their parent directories must exist. For several missing vocabulary files, each receives the same candidate list. Compilation failures can leave partial candidates, and unselected targets or disabled features are not checked. Warnings promoted to errors still fail the build, but candidates from completed lint passes are written for review.
 
 ## Contributing
 
