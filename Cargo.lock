@@ -244,6 +244,7 @@ dependencies = [
  "kotoshu",
  "regex",
  "serde",
+ "tempfile",
 ]
 
 [[package]]

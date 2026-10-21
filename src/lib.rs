@@ -2,6 +2,8 @@
 
 extern crate rustc_errors;
 extern crate rustc_lexer;
+extern crate rustc_lint;
+extern crate rustc_session;
 extern crate rustc_span;
 
 use dylint_linting::config;
@@ -9,19 +11,60 @@ use regex::Regex;
 use rustc_errors::DiagDecorator;
 use rustc_lexer::{FrontmatterAllowed, TokenKind, tokenize};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
-use rustc_span::{BytePos, Span, SyntaxContext};
-use std::{path::PathBuf, sync::LazyLock};
+use rustc_span::{BytePos, Span, Symbol, SyntaxContext};
+use std::{collections::BTreeSet, path::PathBuf, sync::LazyLock};
 
 mod spelling;
 use spelling::{Checker, Config};
 
-dylint_linting::declare_late_lint! {
+dylint_linting::dylint_library!();
+
+dylint_linting::declare_lint! {
     /// Checks words in Rust line and block comments using a configured Hunspell dictionary.
     /// URLs, email addresses and backtick-delimited code are skipped.
     /// This source-scanning lint currently supports crate-level suppression only.
     pub SPELLCHECK,
     Warn,
     "misspelled words in comments"
+}
+
+dylint_linting::declare_lint_pass!(Spellcheck => [SPELLCHECK]);
+
+#[unsafe(no_mangle)]
+pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::LintStore) {
+    dylint_linting::init_config(sess);
+    store.register_lints(&[SPELLCHECK]);
+    // Dep-info is written before late lint passes; register external inputs now.
+    let inputs = (|| -> Result<(), String> {
+        let settings = config::<Config>("dylint-spellcheck")
+            .map_err(|error| format!("invalid dylint-spellcheck configuration: {error}"))?
+            .unwrap_or_default();
+        let root = configuration_root(sess)?;
+        for path in settings
+            .vocabulary_files
+            .iter()
+            .chain(settings.aff.iter())
+            .chain(settings.dic.iter())
+        {
+            let path = root.join(path);
+            sess.file_depinfo
+                .lock()
+                .insert(Symbol::intern(&path.to_string_lossy()));
+            if !path.exists()
+                && let Some(parent) = path.parent()
+            {
+                sess.file_depinfo
+                    .lock()
+                    .insert(Symbol::intern(&parent.to_string_lossy()));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = inputs {
+        sess.dcx().err(error);
+        return;
+    }
+    store.register_late_lint_pass(Box::new(|_| Box::new(Spellcheck)));
 }
 
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
@@ -53,7 +96,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 return;
             }
         };
-        let root = match configuration_root(cx) {
+        let root = match configuration_root(cx.sess()) {
             Ok(root) => root,
             Err(error) => {
                 cx.sess().dcx().err(error);
@@ -76,6 +119,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 return;
             }
         }
+        let mut candidates = BTreeSet::new();
         for file in cx.sess().source_map().files().iter() {
             if !matches!(&file.name, rustc_span::FileName::Real(name) if name.local_path().is_some_and(|path| path.extension().is_some_and(|extension| extension == "rs")))
             {
@@ -105,6 +149,10 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                         span,
                         DiagDecorator(|diag| {
                             diag.primary_message(format!("misspelled word: `{word}`"));
+                            if !checker.missing.is_empty() {
+                                candidates.insert(word.to_owned());
+                                return;
+                            }
                             let suggestions = checker.suggestions(word);
                             if !suggestions.is_empty() {
                                 diag.help(format!(
@@ -121,12 +169,21 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 }
             }
         }
+        for vocabulary in &checker.missing {
+            match Checker::collect_candidates(vocabulary, &candidates) {
+                    Ok(path) => cx.sess().dcx().note(format!(
+                        "Collected spelling candidates in {}. Review for genuine typos before renaming to {}. This list accumulates across runs; delete it before a fresh collection.",
+                        path.strip_prefix(&root).unwrap_or(&path).display(),
+                        vocabulary.strip_prefix(&root).unwrap_or(vocabulary).display()
+                    )),
+                    Err(error) => { cx.sess().dcx().err(error); }
+            }
+        }
     }
 }
 
-fn configuration_root(cx: &LateContext<'_>) -> Result<PathBuf, String> {
-    let source = cx
-        .sess()
+fn configuration_root(sess: &rustc_session::Session) -> Result<PathBuf, String> {
+    let source = sess
         .local_crate_source_file()
         .and_then(rustc_span::RealFileName::into_local_path);
     let directory = source
