@@ -17,6 +17,7 @@ glob = "0.3"
 kotoshu = { git = "https://github.com/kotoshu/kotoshu-rs", rev = "11a43c5f30ae98f31e2cae303c5d695491940c4e", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
+rustc-literal-escaper = "0.0.8"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 walkdir = "2"
