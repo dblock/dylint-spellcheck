@@ -1,0 +1,35 @@
+warning: misspelled word: `helo`
+  --> $DIR/comments.rs:1:10
+   |
+LL | // hello helo
+   |          ^^^^
+   |
+   = help: did you mean `hello`, `help`, `hero`?
+   = note: `#[warn(spellcheck)]` on by default
+
+warning: misspelled word: `wrld`
+  --> $DIR/comments.rs:2:11
+   |
+LL | /// world wrld
+   |           ^^^^
+   |
+   = help: did you mean `world`, `wild`, `weld`?
+
+warning: misspelled word: `wroks`
+  --> $DIR/comments.rs:3:9
+   |
+LL | /* this wroks */
+   |         ^^^^^
+   |
+   = help: did you mean `works`, `work`, `ross`?
+
+warning: misspelled word: `helo`
+  --> $DIR/comments.rs:4:9
+   |
+LL | // café helo
+   |         ^^^^
+   |
+   = help: did you mean `hello`, `help`, `hero`?
+
+warning: 4 warnings emitted
+

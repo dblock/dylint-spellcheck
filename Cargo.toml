@@ -1,0 +1,23 @@
+[package]
+name = "dylint-spellcheck"
+version = "0.1.0"
+edition = "2024"
+description = "Rust comment spelling lint powered by Kotoshu"
+license = "MIT"
+repository = "https://github.com/dblock/dylint-spellcheck"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dylint_linting = "=6.2.0"
+kotoshu = { git = "https://github.com/kotoshu/kotoshu-rs", rev = "11a43c5f30ae98f31e2cae303c5d695491940c4e", default-features = false }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+dylint_testing = "=6.2.0"
+
+[package.metadata.rust-analyzer]
+rustc_private = true
