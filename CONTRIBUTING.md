@@ -27,6 +27,8 @@ cargo test --locked
 
 CI runs the same checks on Linux and macOS. Tests cover both bundled English and custom dictionary fixtures. UI tests cover real compiler diagnostics, comment extraction, source positions, and crate-level suppression. Add focused regressions for changed behavior and review expected diagnostic output when updating UI fixtures.
 
+Integration tests build the current lint once in the repository's reusable Dylint build directory and load that library into isolated temporary consumer workspaces. Consumer target directories remain independent so document and vocabulary freshness regressions still exercise real Cargo invalidation. CI caches the toolchain-specific Dylint driver and cancels superseded runs independently for each workflow and pull request.
+
 ### Dylint
 
 A separate Linux workflow runs the pinned upstream general-purpose lint collection and this checkout's spellchecker against all Rust targets:

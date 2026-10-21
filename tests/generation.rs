@@ -1,15 +1,13 @@
 use std::{fs, path::Path, process::Command};
 
+mod support;
+
 fn lint(root: &Path) -> std::process::Output {
     lint_command(root).output().unwrap()
 }
 
 fn lint_command(root: &Path) -> Command {
-    let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
-    command
-        .current_dir(root)
-        .args(["dylint", "--all", "--", "--workspace", "--all-targets"]);
-    command
+    support::lint_command(root)
 }
 
 #[test]
