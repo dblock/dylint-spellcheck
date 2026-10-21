@@ -4,6 +4,7 @@
 
 ### Added
 
+- [#11](https://github.com/dblock/dylint-spellcheck/pull/11): Check selected plain-text documents literally, automatically excluding configured dictionary and vocabulary resources - [@dblock](https://github.com/dblock).
 - [#10](https://github.com/dblock/dylint-spellcheck/pull/10): Respect scoped Rust lint attributes and Markdown suppression directives, excluding suppressed words from vocabulary candidates - [@dblock](https://github.com/dblock).
 - [#9](https://github.com/dblock/dylint-spellcheck/pull/9): Configure dictionaries and vocabulary with optional language keys, directory discovery, and offline `crate:name/path` resources that override default English - [@dblock](https://github.com/dblock).
 - [#5](https://github.com/dblock/dylint-spellcheck/pull/5): Select standalone files with include/exclude patterns and dispatch Markdown inputs with discovery dependency tracking and workspace-target ownership - [@dblock](https://github.com/dblock).

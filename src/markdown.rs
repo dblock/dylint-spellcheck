@@ -1,21 +1,6 @@
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
 
-pub fn supports(path: &std::path::Path) -> Result<(), String> {
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some(extension)
-            if extension.eq_ignore_ascii_case("md")
-                || extension.eq_ignore_ascii_case("markdown") =>
-        {
-            Ok(())
-        }
-        _ => Err(format!(
-            "unsupported spelling input format: {} (supported: .md, .markdown)",
-            path.display()
-        )),
-    }
-}
-
 #[derive(Default)]
 pub struct Prose {
     pub text: String,
@@ -23,6 +8,13 @@ pub struct Prose {
 }
 
 impl Prose {
+    pub fn literal(source: &str) -> Self {
+        Self {
+            text: source.to_owned(),
+            offsets: (0..source.len()).map(|offset| offset..offset + 1).collect(),
+        }
+    }
+
     pub fn source_range(&self, range: Range<usize>) -> Range<usize> {
         self.offsets[range.start].start..self.offsets[range.end - 1].end
     }

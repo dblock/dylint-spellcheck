@@ -67,7 +67,9 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
             .unwrap_or_default();
         let metadata = workspace_metadata(sess)?;
         let root = metadata.workspace_root.as_std_path();
-        for path in settings.input_files(root)? {
+        let inputs = settings.inputs(root)?;
+        let resources = inputs.resource_files();
+        for path in inputs.files() {
             sess.file_depinfo
                 .lock()
                 .insert(Symbol::intern(&path.to_string_lossy()));
@@ -79,7 +81,13 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
                     .insert(Symbol::intern(&parent.to_string_lossy()));
             }
         }
-        documents::files(sess, &metadata, &settings.include, &settings.exclude)
+        documents::files(
+            sess,
+            &metadata,
+            &settings.include,
+            &settings.exclude,
+            &resources,
+        )
     })();
     let documents = match inputs {
         Ok(documents) => documents,
@@ -270,7 +278,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 Ok(file) => file,
                 Err(error) => {
                     cx.sess().dcx().err(format!(
-                        "could not read Markdown document {}: {error}",
+                        "could not read spelling document {}: {error}",
                         path.display()
                     ));
                     return;
@@ -278,14 +286,21 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
             };
             let Some(source) = &file.src else {
                 cx.sess().dcx().err(format!(
-                    "Markdown document has no source text: {}",
+                    "spelling document has no source text: {}",
                     path.display()
                 ));
                 return;
             };
+            let prose = match documents::prose(path, source) {
+                Ok(prose) => prose,
+                Err(error) => {
+                    cx.sess().dcx().err(error);
+                    return;
+                }
+            };
             check_prose(
                 cx,
-                &markdown::prose(source),
+                &prose,
                 file.start_pos,
                 |range| range,
                 &checker,
