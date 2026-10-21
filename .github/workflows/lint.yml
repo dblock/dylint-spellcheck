@@ -1,0 +1,27 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  dylint:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dylint
+      - name: Install Dylint
+        run: cargo +stable install cargo-dylint dylint-link --version 6.2.0 --locked
+      - name: Check general-purpose lints and spelling
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo dylint --all -- --all-targets --all-features --locked

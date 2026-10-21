@@ -41,7 +41,7 @@ dylint_linting::impl_lint_pass!(Spellcheck => [SPELLCHECK]);
 pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::LintStore) {
     dylint_linting::init_config(sess);
     store.register_lints(&[SPELLCHECK]);
-    // Dep-info is written before late lint passes; register external inputs now.
+    // Dependency information is written before late lint passes; register external inputs now.
     let inputs = (|| -> Result<Vec<PathBuf>, String> {
         let settings = config::<Config>("dylint-spellcheck")
             .map_err(|error| format!("invalid dylint-spellcheck configuration: {error}"))?

@@ -1,0 +1,2 @@
+[dylint-spellcheck]
+vocabulary_files = [".spellcheck.txt"]

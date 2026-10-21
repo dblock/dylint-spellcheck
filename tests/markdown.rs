@@ -1,6 +1,7 @@
 use std::{fs, path::Path, process::Command};
 
 #[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn root_package_owns_documents_and_prefers_a_binary_without_required_features() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -75,6 +76,7 @@ fn diagnostics(output: &std::process::Output) -> String {
 }
 
 #[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn documents_recheck_without_source_edits_and_report_once_per_workspace() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
