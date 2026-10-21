@@ -139,20 +139,20 @@ Intentional example. <!-- spellcheck:todo -->
 
 Standalone `disable` and `enable` directives control subsequent lines. A trailing `disable` or any `todo` suppresses only its own line. An optional reason follows ` -- ` inside the comment. Directives inside code blocks or inline code are ignored. In Rust comments, directive state is local to each combined comment group. Suppressed words produce neither diagnostics nor vocabulary candidates. Standalone documents use the owning target's crate-level lint setting, not individual Rust item attributes.
 
-## Standalone Markdown
+## Standalone documents
 
 Select additional files independently of their parser in the workspace-root `dylint.toml`:
 
 ```toml
 [dylint-spellcheck]
-include = ["README.md", "docs/**/*.md", "docs/**/*.markdown"]
+include = ["README.md", "docs/**/*.md", "docs/**/*.markdown", "docs/**/*.txt"]
 exclude = ["docs/generated/**"]
 dictionaries = ["crate:dylint-spellcheck/data/en", ".spellcheck.txt"]
 ```
 
 Paths and patterns resolve from the workspace root; absolute paths are also supported. `include` accepts exact file paths and glob patterns (`*`, `?`, character classes, and recursive `**`). `exclude` takes precedence over inclusion. Globs may match no files; missing exact files, directories selected as exact files, unreadable inputs, and malformed patterns fail explicitly. Repeated paths to the same file are checked only once. Directory symlinks are not followed during discovery.
 
-Selected files are dispatched by format, rather than assuming all included files are Markdown. Currently `.md` and `.markdown` (case-insensitive) use the Markdown parser; other selected formats fail explicitly until a parser is supported. Compiled Rust comments remain checked by default; `include` and `exclude` select additional standalone inputs, not compiler source files. Documents share dictionaries, vocabulary, suggestions, and candidate collection with Rust comments, with diagnostics pointing directly into the document.
+Selected files are dispatched by format. The `.md` and `.markdown` extensions use the Markdown parser; `.txt` files are checked literally, including text inside backticks and markup. Extensions are case-insensitive. URLs and email addresses are skipped in both formats. Markdown suppression directives are not interpreted in plain text. Configured dictionary and vocabulary files are automatically excluded, including aliases resolving to the same file. Other selected formats fail explicitly until a parser is supported. Compiled Rust comments remain checked by default; `include` and `exclude` select additional standalone inputs, not compiler source files. Documents share dictionaries, vocabulary, suggestions, and candidate collection with Rust comments, with diagnostics pointing directly into the document.
 
 Document edits and additions or removals under glob search directories invalidate Cargo's checks; no Rust source edit or clean build is needed. Directory tracking is conservative: unrelated directory-entry changes may also trigger rechecking. Prefer narrow patterns such as `docs/**/*.md` and exclude generated directories to limit discovery and rebuilds.
 

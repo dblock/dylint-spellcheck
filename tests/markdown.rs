@@ -4,6 +4,57 @@ mod support;
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"plain\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"*.txt\", \"*.TXT\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \"vocabulary.txt\", \".spellcheck.txt\"]\n").unwrap();
+    fs::write(
+        root.join("vocabulary.txt"),
+        "# Vocabularywrongword\nProjectword\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("vocabulary.txt"), root.join("alias.txt")).unwrap();
+    fs::write(
+        root.join("notes.TXT"),
+        "Projectword `helo`\nworld **wrld**\nhttps://ignoredword.test a@ignoredword.test\n",
+    )
+    .unwrap();
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("notes.TXT:1:14"), "{stderr}");
+    assert!(stderr.contains("notes.TXT:2:9"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+        "helo\nwrld\n"
+    );
+    fs::rename(root.join(".spellcheck.tmp"), root.join(".spellcheck.txt")).unwrap();
+    let output = lint(root, false);
+    assert!(output.status.success(), "{}", diagnostics(&output));
+    assert!(
+        !diagnostics(&output).contains("misspelled word"),
+        "{}",
+        diagnostics(&output)
+    );
+    fs::write(root.join("notes.TXT"), "Changedwrongword\n").unwrap();
+    let output = lint(root, false);
+    assert!(
+        diagnostics(&output).contains("`Changedwrongword`"),
+        "{}",
+        diagnostics(&output)
+    );
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn scoped_suppression_controls_diagnostics_and_candidates() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -308,10 +359,10 @@ fn documents_recheck_without_source_edits_and_report_once_per_workspace() {
         "{}",
         diagnostics(&output)
     );
-    fs::write(root.join("unsupported.txt"), "hello\n").unwrap();
+    fs::write(root.join("unsupported.rst"), "hello\n").unwrap();
     fs::write(
         root.join("dylint.toml"),
-        "[dylint-spellcheck]\ninclude = [\"unsupported.txt\"]\n",
+        "[dylint-spellcheck]\ninclude = [\"unsupported.rst\"]\n",
     )
     .unwrap();
     let output = lint(root, false);

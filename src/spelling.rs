@@ -22,7 +22,7 @@ pub enum Dictionaries {
     Languages(BTreeMap<String, Vec<PathBuf>>),
 }
 
-struct Inputs {
+pub struct Inputs {
     bundled_english: bool,
     dictionaries: BTreeSet<(PathBuf, PathBuf)>,
     vocabulary: BTreeSet<PathBuf>,
@@ -40,22 +40,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn input_files(&self, root: &Path) -> Result<Vec<PathBuf>, String> {
-        let inputs = self.inputs(root)?;
-        Ok(inputs
-            .vocabulary
-            .into_iter()
-            .chain(
-                inputs
-                    .dictionaries
-                    .into_iter()
-                    .flat_map(|(aff, dic)| [aff, dic]),
-            )
-            .chain(inputs.tracked)
-            .collect())
-    }
-
-    fn inputs(&self, root: &Path) -> Result<Inputs, String> {
+    pub fn inputs(&self, root: &Path) -> Result<Inputs, String> {
         let groups: Vec<_> = match &self.dictionaries {
             Dictionaries::Paths(entries) => vec![(None, entries)],
             Dictionaries::Languages(languages) => languages
@@ -204,6 +189,25 @@ impl Config {
 }
 
 impl Inputs {
+    pub fn files(&self) -> Vec<PathBuf> {
+        self.resource_files()
+            .into_iter()
+            .chain(self.tracked.iter().cloned())
+            .collect()
+    }
+
+    pub fn resource_files(&self) -> Vec<PathBuf> {
+        self.vocabulary
+            .iter()
+            .cloned()
+            .chain(
+                self.dictionaries
+                    .iter()
+                    .flat_map(|(aff, dic)| [aff.clone(), dic.clone()]),
+            )
+            .collect()
+    }
+
     fn add_directory(&mut self, path: &Path, language: Option<&str>) -> Result<(), String> {
         self.tracked.insert(path.to_owned());
         if let Some(language) = language {
@@ -654,8 +658,9 @@ mod tests {
             };
             assert!(
                 config
-                    .input_files(root)
+                    .inputs(root)
                     .unwrap()
+                    .files()
                     .contains(&root.join("dicts"))
             );
             let checker = Checker::load(config, root).unwrap();
