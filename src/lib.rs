@@ -41,6 +41,9 @@ dylint_linting::impl_lint_pass!(Spellcheck => [SPELLCHECK]);
 pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::LintStore) {
     dylint_linting::init_config(sess);
     store.register_lints(&[SPELLCHECK]);
+    if !sess.opts.prints.is_empty() {
+        return;
+    }
     // Dependency information is written before late lint passes; register external inputs now.
     let inputs = (|| -> Result<Vec<PathBuf>, String> {
         let settings = config::<Config>("dylint-spellcheck")
@@ -48,13 +51,7 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
             .unwrap_or_default();
         let metadata = workspace_metadata(sess)?;
         let root = metadata.workspace_root.as_std_path();
-        for path in settings
-            .vocabulary_files
-            .iter()
-            .chain(settings.aff.iter())
-            .chain(settings.dic.iter())
-        {
-            let path = root.join(path);
+        for path in settings.input_files(root)? {
             sess.file_depinfo
                 .lock()
                 .insert(Symbol::intern(&path.to_string_lossy()));
@@ -257,8 +254,7 @@ mod tests {
     fn checker() -> Checker {
         Checker::load(
             Config {
-                aff: Some("tests/fixtures/en.aff".into()),
-                dic: Some("tests/fixtures/en.dic".into()),
+                dictionaries: spelling::Dictionaries::Paths(vec!["tests/fixtures".into()]),
                 ..Config::default()
             },
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
@@ -308,9 +304,8 @@ mod tests {
     fn ui() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let settings = format!(
-            "[dylint-spellcheck]\naff = {:?}\ndic = {:?}\nvocabulary_files = [{:?}]\n",
-            root.join("tests/fixtures/en.aff"),
-            root.join("tests/fixtures/en.dic"),
+            "[dylint-spellcheck.dictionaries]\nen = [{:?}, {:?}]\n",
+            root.join("tests/fixtures"),
             root.join("tests/fixtures/vocabulary.txt"),
         );
         dylint_testing::ui::Test::src_base("dylint_spellcheck", "ui")

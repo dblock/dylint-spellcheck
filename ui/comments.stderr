@@ -4,7 +4,7 @@ warning: misspelled word: `helo`
 LL | // hello helo
    |          ^^^^
    |
-   = help: did you mean `hello`, `help`, `hero`?
+   = help: did you mean `hello`?
    = note: `#[warn(spellcheck)]` on by default
 
 warning: misspelled word: `wrld`
@@ -13,7 +13,7 @@ warning: misspelled word: `wrld`
 LL | /// world wrld
    |           ^^^^
    |
-   = help: did you mean `world`, `wild`, `weld`?
+   = help: did you mean `world`?
 
 warning: misspelled word: `wroks`
   --> $DIR/comments.rs:3:9
@@ -21,7 +21,7 @@ warning: misspelled word: `wroks`
 LL | /* this wroks */
    |         ^^^^^
    |
-   = help: did you mean `works`, `work`, `ross`?
+   = help: did you mean `works`?
 
 warning: misspelled word: `helo`
   --> $DIR/comments.rs:4:9
@@ -29,7 +29,7 @@ warning: misspelled word: `helo`
 LL | // café helo
    |         ^^^^
    |
-   = help: did you mean `hello`, `help`, `hero`?
+   = help: did you mean `hello`?
 
 warning: 4 warnings emitted
 

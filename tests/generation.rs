@@ -7,7 +7,9 @@ fn lint(root: &Path) -> std::process::Output {
 }
 
 fn lint_command(root: &Path) -> Command {
-    support::lint_command(root)
+    let mut command = support::lint_command(root);
+    command.env("CARGO_CACHE_RUSTC_INFO", "0");
+    command
 }
 
 #[test]
@@ -40,8 +42,7 @@ fn collects_across_compiler_processes_and_rechecks_after_promotion() {
         )
         .unwrap();
     }
-    let config =
-        "[dylint-spellcheck]\nvocabulary_files = [\"existing.txt\", \".spellcheck.txt\"]\n";
+    let config = "[dylint-spellcheck]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \"existing.txt\", \".spellcheck.txt\"]\n";
     fs::write(root.join("existing.txt"), "Existingword\n").unwrap();
     fs::write(root.join("dylint.toml"), config).unwrap();
     let result = lint(&root.join("first"));
