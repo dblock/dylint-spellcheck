@@ -22,6 +22,7 @@ use std::{
 mod comments;
 mod documents;
 mod files;
+mod front_matter;
 mod markdown;
 mod rustdoc;
 mod spelling;
@@ -269,6 +270,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 return;
             }
         };
+        let markdown = settings.markdown.clone();
         let checker = match Checker::load(settings, &root) {
             Ok(checker) => checker,
             Err(error) => {
@@ -288,7 +290,13 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
         let mut diagnostics = Diagnostics::default();
         let mut included_files = BTreeSet::new();
         for document in &self.doc_attributes {
-            let prose = markdown::prose(&document.text);
+            let prose = match markdown::prose_with_config(&document.text, &markdown) {
+                Ok(prose) => prose,
+                Err(error) => {
+                    cx.sess().dcx().span_err(document.span(), error);
+                    continue;
+                }
+            };
             if !document.text.is_empty() {
                 let span = document.span();
                 for path in &document.included {
@@ -339,7 +347,13 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                         continue;
                     }
                 }
-                let prose = markdown::prose(&comment.text);
+                let prose = match markdown::prose_with_config(&comment.text, &markdown) {
+                    Ok(prose) => prose,
+                    Err(error) => {
+                        cx.sess().dcx().err(format!("{error} in {:?}", file.name));
+                        continue;
+                    }
+                };
                 check_prose(
                     cx,
                     &prose,
@@ -382,7 +396,7 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 ));
                 return;
             };
-            let prose = match documents::prose(path, source) {
+            let prose = match documents::prose_with_config(path, source, &markdown) {
                 Ok(prose) => prose,
                 Err(error) => {
                     cx.sess().dcx().err(error);

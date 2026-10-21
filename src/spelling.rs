@@ -10,6 +10,7 @@ use std::{
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub markdown: crate::markdown::Config,
     pub dictionaries: Dictionaries,
     pub include: Vec<String>,
     pub exclude: Vec<String>,
@@ -32,6 +33,7 @@ pub struct Inputs {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            markdown: crate::markdown::Config::default(),
             dictionaries: Dictionaries::Paths(vec!["crate:dylint-spellcheck/data/en".into()]),
             include: Vec::new(),
             exclude: Vec::new(),
@@ -41,6 +43,7 @@ impl Default for Config {
 
 impl Config {
     pub fn inputs(&self, root: &Path) -> Result<Inputs, String> {
+        self.markdown.front_matter.validate()?;
         let groups: Vec<_> = match &self.dictionaries {
             Dictionaries::Paths(entries) => vec![(None, entries)],
             Dictionaries::Languages(languages) => languages

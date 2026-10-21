@@ -269,6 +269,95 @@ fn diagnostics(output: &std::process::Output) -> String {
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn front_matter_configuration_spans_suppression_and_candidates() {
+    let temp = tempfile::tempdir_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("target")).unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"front-matter\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[workspace]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        "/// ---\n/// title: Rustfrontwrongword\n/// ---\n/// Rustbodywrongword\nfn main() { attribute(); }\n#[doc = \"---\\ntitle: Attributefrontwrongword\\n---\\nAttributebodywrongword\"]\nfn attribute() {}\n",
+    )
+    .unwrap();
+    let settings = "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n";
+    let source = "---\ntitle: \"h\\x65lo\"\nnested:\n  values: [Arraywrongword, true, false, null, .nan]\n  hidden: Excludedwrongword\nsuppressed: 'Hiddenwrongword <!-- spellcheck:todo -->'\n---\nBodywrongword\n";
+    fs::write(root.join("README.md"), source).unwrap();
+    fs::write(
+        root.join("dylint.toml"),
+        format!(
+            "{settings}[dylint-spellcheck.markdown.front_matter]\nexclude = [\"nested.hidden\"]\n"
+        ),
+    )
+    .unwrap();
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("README.md:2:9"), "{stderr}");
+    assert!(stderr.contains("h\\x65lo"), "{stderr}");
+    assert!(stderr.contains("src/main.rs:2:12"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+        "Arraywrongword\nAttributebodywrongword\nAttributefrontwrongword\nBodywrongword\nRustbodywrongword\nRustfrontwrongword\nhelo\n"
+    );
+    for selection in ["enabled = false", "include = []"] {
+        fs::remove_file(root.join(".spellcheck.tmp")).unwrap();
+        fs::write(
+            root.join("dylint.toml"),
+            format!("{settings}[dylint-spellcheck.markdown.front_matter]\n{selection}\n"),
+        )
+        .unwrap();
+        let output = lint(root, false);
+        assert!(output.status.success(), "{}", diagnostics(&output));
+        assert_eq!(
+            fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+            "Attributebodywrongword\nBodywrongword\nRustbodywrongword\n"
+        );
+    }
+    fs::write(root.join("README.md"), "---\ntitle: [broken\n---\n").unwrap();
+    let output = lint(root, false);
+    assert!(!output.status.success(), "{}", diagnostics(&output));
+    let stderr = diagnostics(&output);
+    assert!(stderr.contains("invalid YAML front matter"), "{stderr}");
+    assert!(stderr.contains("README.md"), "{stderr}");
+    fs::write(root.join("README.md"), source).unwrap();
+    for invalid in ["include = [\"nested..title\"]", "enabled = \"false\""] {
+        fs::write(
+            root.join("dylint.toml"),
+            format!("{settings}[dylint-spellcheck.markdown.front_matter]\n{invalid}\n"),
+        )
+        .unwrap();
+        let output = lint(root, false);
+        assert!(!output.status.success(), "{}", diagnostics(&output));
+        assert!(diagnostics(&output).contains("front_matter"));
+    }
+    for (invalid, field) in [
+        (
+            "[dylint-spellcheck.front_matter]\nenabled = false\n",
+            "front_matter",
+        ),
+        ("[dylint-spellcheck.markdown]\nenabled = false\n", "enabled"),
+        (
+            "[dylint-spellcheck.markdown.front_matter]\nunknown = []\n",
+            "unknown",
+        ),
+    ] {
+        fs::write(root.join("dylint.toml"), format!("{settings}{invalid}")).unwrap();
+        let output = lint(root, false);
+        let stderr = diagnostics(&output);
+        assert!(!output.status.success(), "{stderr}");
+        assert!(
+            stderr.contains(&format!("unknown field `{field}`")),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn documents_recheck_without_source_edits_and_report_once_per_workspace() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

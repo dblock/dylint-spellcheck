@@ -18,6 +18,7 @@ kotoshu = { git = "https://github.com/kotoshu/kotoshu-rs", rev = "11a43c5f30ae98
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rustc-literal-escaper = "0.0.8"
+saphyr-parser = "0.2.2"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 walkdir = "2"
