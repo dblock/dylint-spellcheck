@@ -38,11 +38,12 @@ fn collects_across_compiler_processes_and_rechecks_after_promotion() {
         };
         fs::write(
             root.join(member).join("src/main.rs"),
-            format!("{allowance}// {word}\n// Existingword Ignoredword\nfn main() {{}}\n"),
+            format!("{allowance}// {word}\n// Existingword\nfn main() {{}}\n"),
         )
         .unwrap();
     }
-    let config = "[dylint-spellcheck]\nvocabulary_files = [\"existing.txt\", \".spellcheck.txt\"]\nignored_words = [\"Ignoredword\"]\n";
+    let config =
+        "[dylint-spellcheck]\nvocabulary_files = [\"existing.txt\", \".spellcheck.txt\"]\n";
     fs::write(root.join("existing.txt"), "Existingword\n").unwrap();
     fs::write(root.join("dylint.toml"), config).unwrap();
     let result = lint(&root.join("first"));
@@ -66,7 +67,7 @@ fn collects_across_compiler_processes_and_rechecks_after_promotion() {
     );
     assert_eq!(
         fs::read_to_string(root.join("first/src/main.rs")).unwrap(),
-        "// Kotoshu\n// Existingword Ignoredword\nfn main() {}\n"
+        "// Kotoshu\n// Existingword\nfn main() {}\n"
     );
 
     fs::remove_file(root.join(".spellcheck.tmp")).unwrap();

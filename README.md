@@ -56,10 +56,9 @@ The default is the bundled [American English Hunspell dictionary](data/en/README
 ```toml
 [dylint-spellcheck]
 vocabulary_files = [".spellcheck.txt"]
-ignored_words = ["Kotoshu"]
 ```
 
-Vocabulary files contain one accepted word per line. Blank lines and lines beginning with `#` are ignored. Vocabulary and `ignored_words` are case-sensitive; neither replaces the dictionary.
+Vocabulary files contain one accepted word per line, for example `Kotoshu`. Blank lines and lines beginning with `#` are ignored. Vocabulary is case-sensitive and supplements rather than replaces the dictionary.
 
 ### Use another language
 
@@ -93,7 +92,32 @@ For reproducible builds, pin the library's Git dependency to a reviewed commit w
 
 ## Limitations
 
-Markdown parsing follows CommonMark with tables, strikethrough, task lists, and footnotes. HTML markup and HTML blocks are skipped; Markdown inside HTML blocks is not checked. Comments separated by Rust code, a blank source line, or a different comment kind are separate documents. Rustdoc attributes such as `#[doc = "..."]` and standalone documents are not checked yet. Technical tokens may need project vocabulary entries. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
+Markdown parsing follows CommonMark with tables, strikethrough, task lists, and footnotes. HTML markup and HTML blocks are skipped; Markdown inside HTML blocks is not checked. Comments separated by Rust code, a blank source line, or a different comment kind are separate documents. Rustdoc attributes such as `#[doc = "..."]` are not checked. Technical tokens may need project vocabulary entries. No autocorrection is performed. Suppress the lint at the crate level with `#![allow(spellcheck)]`; item-level suppression is not supported by this source-scanning implementation.
+
+## Standalone Markdown
+
+Select additional files independently of their parser in the workspace-root `dylint.toml`:
+
+```toml
+[dylint-spellcheck]
+include = ["README.md", "docs/**/*.md", "docs/**/*.markdown"]
+exclude = ["docs/generated/**"]
+vocabulary_files = [".spellcheck.txt"]
+```
+
+Paths and patterns resolve from the workspace root; absolute paths are also supported. `include` accepts exact file paths and glob patterns (`*`, `?`, character classes, and recursive `**`). `exclude` takes precedence over inclusion. Globs may match no files; missing exact files, directories selected as exact files, unreadable inputs, and malformed patterns fail explicitly. Repeated paths to the same file are checked only once. Directory symlinks are not followed during discovery.
+
+Selected files are dispatched by format, rather than assuming all included files are Markdown. Currently `.md` and `.markdown` (case-insensitive) use the Markdown parser; other selected formats fail explicitly until a parser is supported. Compiled Rust comments remain checked by default; `include` and `exclude` select additional standalone inputs, not compiler source files. Documents share dictionaries, vocabulary, suggestions, and candidate collection with Rust comments, with diagnostics pointing directly into the document.
+
+Document edits and additions or removals under glob search directories invalidate Cargo's checks; no Rust source edit or clean build is needed. Directory tracking is conservative: unrelated directory-entry changes may also trigger rechecking. Prefer narrow patterns such as `docs/**/*.md` and exclude generated directories to limit discovery and rebuilds.
+
+Run the complete workspace scope:
+
+```sh
+cargo dylint --all -- --workspace --all-targets --all-features
+```
+
+To avoid repeating workspace documents for every binary and test, one compilation target owns them: the workspace-root package, or the member with the lexicographically first manifest path in a virtual workspace. Its library (including a procedural macro) is preferred; otherwise its first binary by name without required features is preferred. Test-harness variants do not check documents. The owning target must be selected for document checks to run; selecting only other packages, binaries, or test harnesses does not check standalone documents. Multiple target triples are separate compilations and may each report the documents. Crate-level suppression on the owning target also suppresses document diagnostics and vocabulary candidates.
 
 ## Generate project vocabulary
 
