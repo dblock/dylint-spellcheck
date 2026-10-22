@@ -1,5 +1,12 @@
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use serde::Deserialize;
 use std::ops::Range;
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    pub front_matter: crate::front_matter::Config,
+}
 
 #[derive(Default)]
 pub struct Prose {
@@ -8,6 +15,28 @@ pub struct Prose {
 }
 
 impl Prose {
+    pub(crate) fn push_mapped(&mut self, ch: char, range: Range<usize>) {
+        self.text.push(ch);
+        self.offsets
+            .extend(std::iter::repeat_n(range, ch.len_utf8()));
+    }
+
+    pub(crate) fn append_mapped(
+        &mut self,
+        other: &Self,
+        map: impl Fn(Range<usize>) -> Range<usize>,
+    ) {
+        self.boundary();
+        self.text.push_str(&other.text);
+        self.offsets.extend(
+            other.offsets.iter().cloned().map(
+                |range| {
+                    if range.is_empty() { 0..0 } else { map(range) }
+                },
+            ),
+        );
+    }
+
     pub fn literal(source: &str) -> Self {
         Self {
             text: source.to_owned(),
@@ -23,6 +52,18 @@ impl Prose {
         self.text.push(' ');
         self.offsets.push(0..0);
     }
+}
+
+pub fn prose_with_config(source: &str, config: &Config) -> Result<Prose, String> {
+    let (mut front, body_start) = crate::front_matter::extract(source, &config.front_matter)?;
+    let body = prose(&source[body_start..]);
+    if body_start == 0 {
+        return Ok(body);
+    }
+    front.append_mapped(&body, |range| {
+        body_start + range.start..body_start + range.end
+    });
+    Ok(front)
 }
 
 pub fn prose(source: &str) -> Prose {

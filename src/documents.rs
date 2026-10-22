@@ -4,6 +4,14 @@ use rustc_span::Symbol;
 use std::path::{Path, PathBuf};
 
 pub fn prose(path: &Path, source: &str) -> Result<crate::markdown::Prose, String> {
+    prose_with_config(path, source, &crate::markdown::Config::default())
+}
+
+pub fn prose_with_config(
+    path: &Path,
+    source: &str,
+    config: &crate::markdown::Config,
+) -> Result<crate::markdown::Prose, String> {
     match path.extension().and_then(|extension| extension.to_str()) {
         Some(extension) if extension.eq_ignore_ascii_case("txt") => {
             Ok(crate::markdown::Prose::literal(source))
@@ -12,7 +20,8 @@ pub fn prose(path: &Path, source: &str) -> Result<crate::markdown::Prose, String
             if extension.eq_ignore_ascii_case("md")
                 || extension.eq_ignore_ascii_case("markdown") =>
         {
-            Ok(crate::markdown::prose(source))
+            crate::markdown::prose_with_config(source, config)
+                .map_err(|error| format!("{error} in {}", path.display()))
         }
         _ => Err(format!(
             "unsupported spelling input format: {} (supported: .md, .markdown, .txt)",

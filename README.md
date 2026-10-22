@@ -12,6 +12,7 @@ Checks Rust comments and Rustdoc attributes using bundled English and reports mi
 - [Usage](#usage)
 - [Rustdoc attributes](#rustdoc-attributes)
 - [Standalone documents](#standalone-documents)
+- [YAML front matter](#yaml-front-matter)
 - [Scoped suppression](#scoped-suppression)
 - [Generate project vocabulary](#generate-project-vocabulary)
 - [Dictionaries and languages](#dictionaries-and-languages)
@@ -111,6 +112,27 @@ Document edits, additions, and removals trigger Cargo rechecks without Rust sour
 ### Workspace ownership
 
 One compilation target checks documents to avoid duplicates: the workspace-root package, or the member with the lexicographically first manifest path in a virtual workspace. Its library is preferred; otherwise its first binary by name without required features is preferred. Test-harness variants do not check documents. Select the owning target for document checks to run. Separate target triples may each report documents; crate-level suppression on the owner also suppresses document diagnostics and vocabulary candidates.
+
+## YAML front matter
+
+Markdown documents and Markdown in Rust comments or Rustdoc attributes recognize YAML front matter only at the start of the document or combined documentation group: an opening `---` line (optionally preceded by a UTF-8 BOM), followed by a closing `---` or `...` line. LF and CRLF line endings and trailing spaces on delimiters are supported. The Markdown body is still checked with its original source locations.
+
+By default, string values are checked recursively in mappings and arrays, including quoted strings, literal (`|`) and folded (`>`) multiline scalars. Keys, YAML comments, and non-string values are skipped. Scalar types follow the YAML 1.2 core schema: booleans, nulls, and numbers are not prose; quoting them or using `!!str` makes them strings. Dates and words such as `yes` are strings in this schema. Explicit non-string and custom tags are skipped, including custom-tagged collections. Tags never construct objects, execute code, or load external resources. Anchored values are checked at their definition; aliases are not expanded or checked again.
+
+Configure front matter under the Markdown settings, independently of document file selection:
+
+```toml
+[dylint-spellcheck.markdown.front_matter]
+enabled = true
+include = ["title", "description", "authors.name"]
+exclude = ["description.internal"]
+```
+
+The front matter table must be nested under `markdown`; direct placement under `[dylint-spellcheck]` and unknown settings are configuration errors.
+
+`enabled` defaults to `true`. Omitted `include` checks all string values; explicit `include = []` checks none. `exclude` defaults to `[]` and always wins. Paths are case-sensitive, exact dotted mapping-key segments and select the named value and all its descendants. Arrays reuse their containing field's path without numeric indices, so `authors.name` selects `name` in every author mapping. No wildcards or escaping are supported: a literal key containing a dot cannot be addressed as one segment. Unknown paths match nothing; empty paths and empty segments such as `authors..name` are configuration errors. Root strings and root arrays are checked by default but cannot be selected by a named path.
+
+Selected strings use the existing Markdown prose and suppression rules, with directive state local to each string; body directives are independent. Suppressed and excluded words produce neither diagnostics nor vocabulary candidates. YAML quoting, escapes, Unicode, folding, and Markdown entities retain byte-accurate source spans. Invalid YAML or a missing closing delimiter is an explicit error, even when value checks are disabled or no fields are included; there is no fallback to checking YAML structure as prose. Set `enabled = false` to skip metadata spelling while continuing to check the body.
 
 ## Scoped suppression
 
