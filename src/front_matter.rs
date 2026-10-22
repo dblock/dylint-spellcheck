@@ -393,6 +393,15 @@ mod tests {
     }
 
     #[test]
+    fn yaml_control_escapes_do_not_shift_following_prose() {
+        let source =
+            "---\ntitle: \"\\0\\a\\b\\t\\n\\v\\f\\r\\e\\ \\\"\\/\\\\\\N\\_\\L\\P helo\"\n---\n";
+        let prose = parse(source, &Config::default());
+        let offset = prose.text.find("helo").unwrap();
+        assert_eq!(&source[prose.source_range(offset..offset + 4)], "helo");
+    }
+
+    #[test]
     fn accepts_bom_crlf_end_delimiters_and_root_sequences() {
         let source = "\u{feff}--- \r\n- \"hélo\"\r\n- >-\r\n  foldedword\r\n... \r\nbodyword";
         let prose = parse(source, &Config::default());

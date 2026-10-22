@@ -16,15 +16,8 @@ Checks Rust comments and Rustdoc attributes using bundled English and reports mi
 - [Scoped suppression](#scoped-suppression)
 - [Generate project vocabulary](#generate-project-vocabulary)
 - [Dictionaries and languages](#dictionaries-and-languages)
+- [Word boundaries](#word-boundaries)
 - [Contributing](#contributing)
-
-## Prose word boundaries
-
-Rust comments and standalone documents share Unicode-aware word boundaries. Words begin with a Unicode letter and retain subsequent letters and combining marks, including decomposed accents. Internal straight and curly apostrophes stay within a word (`can't`, `can’t`, `world's`); surrounding quotation marks and trailing possessive apostrophes are excluded. Dictionary lookup also tries straight apostrophes for curly-apostrophe words, and suggestions use straight apostrophes. Diagnostics and vocabulary candidates retain the original spelling and source byte range, including Markdown entities. Other Unicode normalization is not performed: dictionaries and vocabulary must recognize the supplied accent representation.
-
-Contiguous tokens containing any Unicode number or connector punctuation (including underscores) are skipped entirely: `1st`, `22nd`, `sha256`, `v2beta`, `0xdeadbeef`, and `wrong_token` never produce misleading word fragments. Hyphens and other punctuation separate words, so `helo-world` still reports `helo`. Alphabetic hashes cannot be distinguished from prose and are checked; a leading `#` is punctuation, not a blanket suppression. Markdown formatting is decoded first, so `_helo_` is checked as emphasized prose, whereas the same literal token in a `.txt` file is skipped.
-
-These boundaries do not depend on dictionary language keys: all configured languages use the same tokenizer, and a whole word is accepted by any loaded dictionary or exact, case-sensitive vocabulary entry. No language detection, language-specific apostrophe splitting, or dictionary-driven segmentation for scripts without spaces is performed.
 
 ## Setup
 
@@ -90,7 +83,7 @@ Commit `.spellcheck.txt` with `dylint.toml`. Subsequent runs read the vocabulary
 
 ## Rustdoc attributes
 
-In addition to `///` and `//!`, documentation in `#[doc = "..."]`, raw strings, and `#![doc = include_str!("../README.md")]` is checked as Markdown. Attributes on the same item are combined in order, including adjacent documentation comments. Diagnostics point into the literal (including escapes) or the included UTF-8 file. Other compiler-expanded documentation expressions use their call-site span when exact character mapping is unavailable; the lint does not evaluate macros itself.
+Documentation in `///`, `//!`, `#[doc = "..."]`, raw strings, and `#![doc = include_str!("../README.md")]` is checked as Markdown. Adjacent attributes and documentation comments on an item are combined in order. Diagnostics point into the literal or included UTF-8 file; other compiler-expanded expressions use their call-site span when exact mapping is unavailable.
 
 Rust lint attributes on the documented item control these diagnostics and vocabulary candidates. Rust's `include_str!` dependency tracking triggers rechecks when included files change. Included Rustdoc takes precedence over standalone selection in that compilation, and repeated diagnostics at the same source location are emitted once. Separate compilation targets can still report the same included document.
 
@@ -125,9 +118,9 @@ One compilation target checks documents to avoid duplicates: the workspace-root 
 
 ## YAML front matter
 
-Markdown documents and Markdown in Rust comments or Rustdoc attributes recognize YAML front matter only at the start of the document or combined documentation group: an opening `---` line (optionally preceded by a UTF-8 BOM), followed by a closing `---` or `...` line. LF and CRLF line endings and trailing spaces on delimiters are supported. The Markdown body is still checked with its original source locations.
+Markdown documents, Rust comments, and Rustdoc attributes recognize YAML front matter at the start of a document or combined comment group, between opening `---` and closing `---` or `...` lines. UTF-8 BOMs and CRLF line endings are supported. The body is checked normally.
 
-By default, string values are checked recursively in mappings and arrays, including quoted strings, literal (`|`) and folded (`>`) multiline scalars. Keys, YAML comments, and non-string values are skipped. Scalar types follow the YAML 1.2 core schema: booleans, nulls, and numbers are not prose; quoting them or using `!!str` makes them strings. Dates and words such as `yes` are strings in this schema. Explicit non-string and custom tags are skipped, including custom-tagged collections. Tags never construct objects, execute code, or load external resources. Anchored values are checked at their definition; aliases are not expanded or checked again.
+String values are checked recursively, including quoted and multiline strings; keys, YAML comments, booleans, nulls, and numbers are skipped under the YAML 1.2 core schema. Use quotes or `!!str` to check a non-string value as prose. Anchors are checked once; aliases and custom-tagged values are skipped. Parsing never constructs objects or loads external resources.
 
 Configure front matter under the Markdown settings, independently of document file selection:
 
@@ -138,11 +131,9 @@ include = ["title", "description", "authors.name"]
 exclude = ["description.internal"]
 ```
 
-The front matter table must be nested under `markdown`; direct placement under `[dylint-spellcheck]` and unknown settings are configuration errors.
+`enabled` defaults to `true`; set it to `false` to skip metadata spelling. Omitted `include` checks all strings, `include = []` checks none, and `exclude` always wins. Case-sensitive dotted paths select a field and its descendants; `authors.name` selects `name` in every author mapping, without array indices. Paths have no wildcards or escaping; unknown paths match nothing, and empty segments are errors.
 
-`enabled` defaults to `true`. Omitted `include` checks all string values; explicit `include = []` checks none. `exclude` defaults to `[]` and always wins. Paths are case-sensitive, exact dotted mapping-key segments and select the named value and all its descendants. Arrays reuse their containing field's path without numeric indices, so `authors.name` selects `name` in every author mapping. No wildcards or escaping are supported: a literal key containing a dot cannot be addressed as one segment. Unknown paths match nothing; empty paths and empty segments such as `authors..name` are configuration errors. Root strings and root arrays are checked by default but cannot be selected by a named path.
-
-Selected strings use the existing Markdown prose and suppression rules, with directive state local to each string; body directives are independent. Suppressed and excluded words produce neither diagnostics nor vocabulary candidates. YAML quoting, escapes, Unicode, folding, and Markdown entities retain byte-accurate source spans. Invalid YAML or a missing closing delimiter is an explicit error, even when value checks are disabled or no fields are included; there is no fallback to checking YAML structure as prose. Set `enabled = false` to skip metadata spelling while continuing to check the body.
+Each string uses Markdown and suppression rules independently of other strings and the body. Quoting, escapes, Unicode, folding, and entities retain source locations. Invalid YAML or a missing closing delimiter is an error even when metadata spelling is disabled.
 
 ## Scoped suppression
 
@@ -227,6 +218,12 @@ Create `.spellcheck.de.txt` with project-specific words, or let the next run gen
 Alternatively, use `dictionaries = ["dictionaries/de", ".spellcheck.de.txt"]` under `[dylint-spellcheck]` to discover all dictionary pairs in that directory. This checks German without loading English. Add `"crate:dylint-spellcheck/data/en"` to the unqualified list, or an `en` table entry containing that reference, to check both languages.
 
 Local paths resolve from the workspace root; absolute paths are supported. Missing `.txt` files trigger [candidate collection](#generate-project-vocabulary), but their parent directories must exist. Unreadable inputs, missing or incomplete dictionary pairs, empty dictionary directories, and invalid configuration are errors. Dictionary edits and pair additions invalidate compiler checks.
+
+## Word boundaries
+
+All formats and languages share Unicode-aware word boundaries. Letters and combining marks form words; internal straight and curly apostrophes are retained (`can't`, `can’t`). Curly apostrophes also try straight-apostrophe dictionary lookup. Diagnostics preserve the original spelling and source range. Other Unicode normalization and language-specific segmentation are not performed.
+
+Tokens containing numbers or connector punctuation are skipped entirely: `1st`, `sha256`, `v2beta`, and `wrong_token` are not split into misleading fragments. Hyphens separate words, so `helo-world` reports `helo`; alphabetic hashes are checked as prose. Markdown formatting is decoded first: `_helo_` is checked as emphasis, but skipped as an underscore-containing token in plain text.
 
 ## Contributing
 

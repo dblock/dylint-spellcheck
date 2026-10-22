@@ -1,0 +1,21 @@
+#![allow(dead_code)]
+#![doc = include_str!("../README.md")]
+#[doc = "hello h\u{65}lo"]
+fn literal() {}
+#[doc = r#"world wrld `Skippedwrongword`"#]
+fn raw() {}
+#[allow(spellcheck)]
+#[doc = "Hiddenwrongword"]
+#[doc = include_str!("../README.md")]
+fn hidden() {}
+#[doc = include_str!("../README.md")]
+fn repeated() {}
+fn main() {}
+
+#[doc = "```rust"]
+/// Skippedwrongword
+#[doc = "```"]
+fn mixed() {}
+#[allow(spellcheck)]
+#[doc = include_str!("../hidden.md")]
+fn hidden_include() {}

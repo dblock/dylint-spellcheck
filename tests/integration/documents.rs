@@ -1,21 +1,18 @@
 use std::{fs, path::Path};
 
-mod support;
+use crate::support;
+use support::{diagnostics, lint, project};
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn rustdoc_attributes_check_literals_and_included_files() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = project();
     let root = temp.path();
-    fs::create_dir(root.join("src")).unwrap();
     fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"rustdocs\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        root.join("src/main.rs"),
+        include_str!("../fixtures/rustdoc.rs.txt"),
     )
     .unwrap();
-    fs::write(root.join("src/main.rs"), "#![allow(dead_code)]\n#![doc = include_str!(\"../README.md\")]\n#[doc = \"hello h\\u{65}lo\"]\nfn literal() {}\n#[doc = r#\"world wrld `Skippedwrongword`\"#]\nfn raw() {}\n#[allow(spellcheck)]\n#[doc = \"Hiddenwrongword\"]\n#[doc = include_str!(\"../README.md\")]\nfn hidden() {}\n#[doc = include_str!(\"../README.md\")]\nfn repeated() {}\nfn main() {}\n").unwrap();
-    let source = fs::read_to_string(root.join("src/main.rs")).unwrap();
-    fs::write(root.join("src/main.rs"), format!("{source}\n#[doc = \"```rust\"]\n/// Skippedwrongword\n#[doc = \"```\"]\nfn mixed() {{}}\n#[allow(spellcheck)]\n#[doc = include_str!(\"../hidden.md\")]\nfn hidden_include() {{}}\n")).unwrap();
     fs::write(root.join("hidden.md"), "Hiddenincludewrongword\n").unwrap();
     fs::write(
         root.join("README.md"),
@@ -68,15 +65,9 @@ fn rustdoc_attributes_check_literals_and_included_files() {
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn prose_boundaries_are_shared_by_comments_markdown_and_plain_text() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = project();
     let root = temp.path();
-    fs::create_dir(root.join("src")).unwrap();
     fs::create_dir(root.join("dicts")).unwrap();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"boundaries\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
     fs::write(root.join("dicts/de.aff"), "SET UTF-8\n").unwrap();
     fs::write(
         root.join("dicts/de.dic"),
@@ -134,15 +125,8 @@ fn prose_boundaries_are_shared_by_comments_markdown_and_plain_text() {
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = project();
     let root = temp.path();
-    fs::create_dir(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"plain\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
     fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"*.txt\", \"*.TXT\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \"vocabulary.txt\", \".spellcheck.txt\"]\n").unwrap();
     fs::write(
         root.join("vocabulary.txt"),
@@ -186,14 +170,8 @@ fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn scoped_suppression_controls_diagnostics_and_candidates() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = project();
     let root = temp.path();
-    fs::create_dir(root.join("src")).unwrap();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"suppression\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
     let source = "#![allow(dead_code)]\n#[allow(spellcheck)]\n/// Docwrongword\nfn hidden() {\n    // Bodywrongword\n    #[warn(spellcheck)]\n    {\n        // Visiblewrongword\n    }\n}\nfn main() {\n    #[allow(spellcheck)]\n    {\n        // Blockwrongword\n    }\n}\n";
     fs::write(
         root.join("src/main.rs"),
@@ -236,15 +214,8 @@ fn scoped_suppression_controls_diagnostics_and_candidates() {
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn liquid_templates_are_excluded_from_markdown_diagnostics_and_candidates() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = project();
     let root = temp.path();
-    fs::create_dir(root.join("src")).unwrap();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"liquid\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
-    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
     fs::write(
         root.join("dylint.toml"),
         "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n",
@@ -394,18 +365,6 @@ fn root_package_owns_documents_and_prefers_a_binary_without_required_features() 
         "{}",
         diagnostics(&output)
     );
-}
-
-fn lint(root: &Path, strict: bool) -> std::process::Output {
-    let mut command = support::lint_command(root);
-    if strict {
-        command.env("RUSTFLAGS", "-D warnings");
-    }
-    command.output().unwrap()
-}
-
-fn diagnostics(output: &std::process::Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
 #[test]
