@@ -27,16 +27,16 @@ Install Rust through [rustup](https://rustup.rs/), then install Dylint:
 cargo +stable install cargo-dylint dylint-link --version 6.2.0 --locked
 ```
 
-Add this library to your project's `Cargo.toml`:
+Add the released [v0.1.0](https://github.com/dblock/dylint-spellcheck/releases/tag/v0.1.0) library to your project's `Cargo.toml`:
 
 ```toml
 [workspace.metadata.dylint]
 libraries = [
-    { git = "https://github.com/dblock/dylint-spellcheck" },
+    { git = "https://github.com/dblock/dylint-spellcheck", tag = "v0.1.0" },
 ]
 ```
 
-For reproducible builds, add `rev = "<reviewed commit>"` to the library entry. Dylint installs the library's pinned nightly compiler without changing your project's normal toolchain.
+For an immutable commit pin, replace `tag` with `rev = "6dab27c9cc08f9f895770d7bbd733971987739ee"`. Dylint installs the library's pinned nightly compiler without changing your project's normal toolchain.
 
 Run the spelling checks; no dictionary configuration is required:
 
