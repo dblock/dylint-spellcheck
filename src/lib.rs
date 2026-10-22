@@ -129,12 +129,19 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
 static SKIP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"https?://[^\s<>]+|www\.[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}").unwrap()
 });
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{L}+(?:['’]\p{L}+)*").unwrap());
+static TOKEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\p{L}\p{M}\p{N}\p{Pc}]+(?:['’][\p{L}\p{M}\p{N}\p{Pc}]+)*").unwrap()
+});
+static WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\p{L}[\p{L}\p{M}]*(?:['’]\p{L}[\p{L}\p{M}]*)*$").unwrap());
 
 fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(std::ops::Range<usize>, &'a str)> {
     let skipped: Vec<_> = SKIP.find_iter(text).map(|m| m.range()).collect();
-    WORD.find_iter(text)
+    TOKEN
+        .find_iter(text)
         .filter(|word| !skipped.iter().any(|range| range.contains(&word.start())))
+        // Reject a technical token as a whole, not just its numeric or underscore parts.
+        .filter(|word| WORD.is_match(word.as_str()))
         .filter(|word| !checker.correct(word.as_str()))
         .map(|word| (word.range(), word.as_str()))
         .collect()
@@ -497,6 +504,88 @@ mod tests {
             )
         );
         assert_eq!(&source[errors[1].0.clone()], "wrld");
+    }
+
+    #[test]
+    fn technical_tokens_do_not_hide_neighboring_prose_typos() {
+        let text = "wrong_token _wrong_ wrong‿token 1st 22nd 3rd 4th \
+                    sha256 0xdeadbeef abc123def v2beta １２typpo typpo² \
+                    abcdef123456 can't2stop helo-wrld #helo (wrld).";
+        let errors = misspellings(text, &checker());
+        assert_eq!(
+            errors.iter().map(|(_, word)| *word).collect::<Vec<_>>(),
+            ["helo", "wrld", "helo", "wrld"]
+        );
+        for (range, word) in errors {
+            assert_eq!(&text[range], word);
+        }
+    }
+
+    #[test]
+    fn unicode_marks_and_apostrophes_keep_complete_source_ranges() {
+        let checker = checker();
+        for source in [
+            "préface cafe\u{301} 'he\u{301}lo' ‘isn’t’ can't dogs’",
+            "préface caf&#101;&#x301; 'he&#x301;lo' ‘isn&rsquo;t’ can't dogs’",
+        ] {
+            let prose = markdown::prose(source);
+            let errors = misspellings(&prose.text, &checker);
+            assert_eq!(
+                errors.iter().map(|(_, word)| *word).collect::<Vec<_>>(),
+                [
+                    "préface",
+                    "cafe\u{301}",
+                    "he\u{301}lo",
+                    "isn’t",
+                    "can't",
+                    "dogs"
+                ]
+            );
+            let expected = if source.contains("&#") {
+                [
+                    "préface",
+                    "caf&#101;&#x301;",
+                    "he&#x301;lo",
+                    "isn&rsquo;t",
+                    "can't",
+                    "dogs",
+                ]
+            } else {
+                [
+                    "préface",
+                    "cafe\u{301}",
+                    "he\u{301}lo",
+                    "isn’t",
+                    "can't",
+                    "dogs",
+                ]
+            };
+            for ((range, _), expected) in errors.into_iter().zip(expected) {
+                assert_eq!(&source[prose.source_range(range)], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn comment_token_ranges_survive_decoration_and_markdown_decoding() {
+        let source = "/**\n * café cafe\u{301} sha256 wrong_token\n * ‘he&#x301;lo’ **isn’t**\n */";
+        let comment = comments::comments(source).pop().unwrap();
+        let prose = markdown::prose(&comment.text);
+        let errors = misspellings(&prose.text, &checker());
+        assert_eq!(
+            errors.iter().map(|(_, word)| *word).collect::<Vec<_>>(),
+            ["cafe\u{301}", "he\u{301}lo", "isn’t"]
+        );
+        for ((range, _), expected) in
+            errors
+                .into_iter()
+                .zip(["cafe\u{301}", "he&#x301;lo", "isn’t"])
+        {
+            assert_eq!(
+                &source[comment.source_range(prose.source_range(range))],
+                expected
+            );
+        }
     }
 
     #[test]

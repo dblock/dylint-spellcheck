@@ -67,6 +67,72 @@ fn rustdoc_attributes_check_literals_and_included_files() {
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn prose_boundaries_are_shared_by_comments_markdown_and_plain_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::create_dir(root.join("dicts")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"boundaries\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("dicts/de.aff"), "SET UTF-8\n").unwrap();
+    fs::write(
+        root.join("dicts/de.dic"),
+        "4\nGrüße\ncafe\u{301}\ncan't\nworld's\n",
+    )
+    .unwrap();
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"notes.md\", \"notes.txt\"]\n[dylint-spellcheck.dictionaries]\nde = [\"dicts\", \".spellcheck.txt\"]\n").unwrap();
+    let text = "Grüße cafe\u{301} can't can’t world's world’s wrong_token sha256 0xdeadbeef 1st v2beta\n'he\u{301}lo' ‘isn’t’ wrld\n";
+    fs::write(root.join("notes.md"), text).unwrap();
+    fs::write(root.join("notes.txt"), text).unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        format!(
+            "// {}\nfn main() {{}}\n",
+            text.trim_end().replace('\n', "\n// ")
+        ),
+    )
+    .unwrap();
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(
+        stderr.matches("warning: misspelled word:").count(),
+        9,
+        "{stderr}"
+    );
+    for word in ["he\u{301}lo", "isn’t", "wrld"] {
+        assert_eq!(
+            stderr
+                .matches(&format!("misspelled word: `{word}`"))
+                .count(),
+            3,
+            "{stderr}"
+        );
+    }
+    for location in [
+        "notes.md:2:2",
+        "notes.md:2:10",
+        "notes.md:2:17",
+        "notes.txt:2:2",
+        "notes.txt:2:10",
+        "notes.txt:2:17",
+        "src/main.rs:2:5",
+        "src/main.rs:2:13",
+        "src/main.rs:2:20",
+    ] {
+        assert!(stderr.contains(location), "{stderr}");
+    }
+    assert_eq!(
+        fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+        "he\u{301}lo\nisn’t\nwrld\n"
+    );
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

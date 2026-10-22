@@ -18,6 +18,14 @@ Checks Rust comments and Rustdoc attributes using bundled English and reports mi
 - [Dictionaries and languages](#dictionaries-and-languages)
 - [Contributing](#contributing)
 
+## Prose word boundaries
+
+Rust comments and standalone documents share Unicode-aware word boundaries. Words begin with a Unicode letter and retain subsequent letters and combining marks, including decomposed accents. Internal straight and curly apostrophes stay within a word (`can't`, `can’t`, `world's`); surrounding quotation marks and trailing possessive apostrophes are excluded. Dictionary lookup also tries straight apostrophes for curly-apostrophe words, and suggestions use straight apostrophes. Diagnostics and vocabulary candidates retain the original spelling and source byte range, including Markdown entities. Other Unicode normalization is not performed: dictionaries and vocabulary must recognize the supplied accent representation.
+
+Contiguous tokens containing any Unicode number or connector punctuation (including underscores) are skipped entirely: `1st`, `22nd`, `sha256`, `v2beta`, `0xdeadbeef`, and `wrong_token` never produce misleading word fragments. Hyphens and other punctuation separate words, so `helo-world` still reports `helo`. Alphabetic hashes cannot be distinguished from prose and are checked; a leading `#` is punctuation, not a blanket suppression. Markdown formatting is decoded first, so `_helo_` is checked as emphasized prose, whereas the same literal token in a `.txt` file is skipped.
+
+These boundaries do not depend on dictionary language keys: all configured languages use the same tokenizer, and a whole word is accepted by any loaded dictionary or exact, case-sensitive vocabulary entry. No language detection, language-specific apostrophe splitting, or dictionary-driven segmentation for scripts without spaces is performed.
+
 ## Setup
 
 Install Rust through [rustup](https://rustup.rs/), then install Dylint:
