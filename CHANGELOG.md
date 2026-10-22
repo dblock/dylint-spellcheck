@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-22
+
 ### Changed
 
 - [#25](https://github.com/dblock/dylint-spellcheck/pull/25): Improve prose word boundaries for Unicode combining marks, apostrophes, and technical numeric/underscore tokens while preserving source ranges - [@dblock](https://github.com/dblock).
@@ -18,3 +20,6 @@
 - [#4](https://github.com/dblock/dylint-spellcheck/pull/4): Parse Markdown prose in Rust comments, skipping code and link destinations while preserving source locations - [@dblock](https://github.com/dblock).
 - [#2](https://github.com/dblock/dylint-spellcheck/pull/2): Collect spelling candidates in a coordinated temporary file when a declared vocabulary is missing, without suggestions or source edits - [@dblock](https://github.com/dblock).
 - [#1](https://github.com/dblock/dylint-spellcheck/pull/1): Bundle English dictionaries and support configuration-relative dictionaries and project vocabulary files - [@dblock](https://github.com/dblock).
+
+[Unreleased]: https://github.com/dblock/dylint-spellcheck/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dblock/dylint-spellcheck/releases/tag/v0.1.0
