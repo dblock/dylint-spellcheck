@@ -1,5 +1,6 @@
 #![feature(rustc_private)]
 
+extern crate rustc_ast;
 extern crate rustc_errors;
 extern crate rustc_hir;
 extern crate rustc_lexer;
@@ -12,12 +13,17 @@ use regex::Regex;
 use rustc_errors::DiagDecorator;
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_span::{BytePos, Span, Symbol, SyntaxContext};
-use std::{collections::BTreeSet, path::PathBuf, sync::LazyLock};
+use std::{
+    collections::{BTreeSet, HashSet},
+    path::PathBuf,
+    sync::LazyLock,
+};
 
 mod comments;
 mod documents;
 mod files;
 mod markdown;
+mod rustdoc;
 mod spelling;
 use spelling::{Checker, Config};
 
@@ -26,7 +32,6 @@ dylint_linting::dylint_library!();
 dylint_linting::declare_lint! {
     /// Checks Rust comments and configured Markdown documents using a Hunspell dictionary.
     /// Markdown code, link destinations, URLs and email addresses are skipped.
-    /// This source-scanning lint currently supports crate-level suppression only.
     pub SPELLCHECK,
     Warn,
     "misspelled words in comments and Markdown"
@@ -35,6 +40,8 @@ dylint_linting::declare_lint! {
 struct Spellcheck {
     documents: Vec<PathBuf>,
     scopes: Vec<(Span, rustc_hir::HirId)>,
+    doc_attributes: Vec<rustdoc::Document>,
+    doc_owners: HashSet<rustc_hir::HirId>,
 }
 
 impl Spellcheck {
@@ -48,6 +55,18 @@ impl Spellcheck {
             }
         }
         self.scopes.push((span, id));
+        self.documentation(cx, id);
+    }
+
+    fn documentation(&mut self, cx: &LateContext<'_>, id: rustc_hir::HirId) {
+        if self.doc_owners.insert(id) {
+            match rustdoc::documents(cx, id) {
+                Ok(documents) => self.doc_attributes.extend(documents),
+                Err(error) => {
+                    cx.sess().dcx().err(error);
+                }
+            }
+        }
     }
 }
 
@@ -100,6 +119,8 @@ pub fn register_lints(sess: &rustc_session::Session, store: &mut rustc_lint::Lin
         Box::new(Spellcheck {
             documents: documents.clone(),
             scopes: Vec::new(),
+            doc_attributes: Vec::new(),
+            doc_owners: HashSet::new(),
         })
     }));
 }
@@ -118,13 +139,19 @@ fn misspellings<'a>(text: &'a str, checker: &Checker) -> Vec<(std::ops::Range<us
         .collect()
 }
 
+#[derive(Default)]
+struct Diagnostics {
+    candidates: BTreeSet<String>,
+    emitted: BTreeSet<(u32, u32)>,
+}
+
 fn check_prose(
     cx: &LateContext<'_>,
     prose: &markdown::Prose,
     start: BytePos,
     source_range: impl Fn(std::ops::Range<usize>) -> std::ops::Range<usize>,
     checker: &Checker,
-    candidates: &mut BTreeSet<String>,
+    diagnostics: &mut Diagnostics,
     scopes: &[(Span, rustc_hir::HirId)],
 ) {
     for (range, word) in misspellings(&prose.text, checker) {
@@ -132,6 +159,9 @@ fn check_prose(
         let lo = start + BytePos(range.start.try_into().unwrap());
         let hi = start + BytePos(range.end.try_into().unwrap());
         let span = Span::new(lo, hi, SyntaxContext::root(), None);
+        if diagnostics.emitted.contains(&(lo.0, hi.0)) {
+            continue;
+        }
         let id = scopes
             .iter()
             .filter(|(scope, _)| scope.contains(span))
@@ -142,9 +172,10 @@ fn check_prose(
             id,
             span,
             DiagDecorator(|diag| {
+                diagnostics.emitted.insert((lo.0, hi.0));
                 diag.primary_message(format!("misspelled word: `{word}`"));
                 if !checker.missing.is_empty() {
-                    candidates.insert(word.to_owned());
+                    diagnostics.candidates.insert(word.to_owned());
                     return;
                 }
                 let suggestions = checker.suggestions(word);
@@ -164,6 +195,9 @@ fn check_prose(
 }
 
 impl<'tcx> LateLintPass<'tcx> for Spellcheck {
+    fn check_crate(&mut self, cx: &LateContext<'tcx>) {
+        self.documentation(cx, rustc_hir::CRATE_HIR_ID);
+    }
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx rustc_hir::Item<'tcx>) {
         self.scope(cx, item.hir_id(), item.span);
         if let rustc_hir::ItemKind::Mod(_, module) = item.kind
@@ -251,7 +285,37 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 return;
             }
         }
-        let mut candidates = BTreeSet::new();
+        let mut diagnostics = Diagnostics::default();
+        let mut included_files = BTreeSet::new();
+        for document in &self.doc_attributes {
+            let prose = markdown::prose(&document.text);
+            if !document.text.is_empty() {
+                let span = document.span();
+                for path in &document.included {
+                    match path.canonicalize() {
+                        Ok(path) => {
+                            included_files.insert(path);
+                        }
+                        Err(error) => {
+                            cx.sess().dcx().err(format!(
+                                "could not resolve included Rustdoc file {}: {error}",
+                                path.display()
+                            ));
+                            return;
+                        }
+                    }
+                }
+                check_prose(
+                    cx,
+                    &prose,
+                    BytePos(0),
+                    |range| document.source_range(range),
+                    &checker,
+                    &mut diagnostics,
+                    &[(span, document.id)],
+                );
+            }
+        }
         for file in cx.sess().source_map().files().iter() {
             if !matches!(&file.name, rustc_span::FileName::Real(name) if name.local_path().is_some_and(|path| path.extension().is_some_and(|extension| extension == "rs")))
             {
@@ -261,6 +325,20 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 continue;
             };
             for comment in comments::comments(source) {
+                if !comment.text.is_empty() {
+                    let range = comment.source_range(0..comment.text.len());
+                    let span = Span::with_root_ctxt(
+                        file.start_pos + BytePos(range.start.try_into().unwrap()),
+                        file.start_pos + BytePos(range.end.try_into().unwrap()),
+                    );
+                    if self
+                        .doc_attributes
+                        .iter()
+                        .any(|document| document.comments.iter().any(|doc| doc.contains(span)))
+                    {
+                        continue;
+                    }
+                }
                 let prose = markdown::prose(&comment.text);
                 check_prose(
                     cx,
@@ -268,12 +346,25 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                     file.start_pos,
                     |range| comment.source_range(range),
                     &checker,
-                    &mut candidates,
+                    &mut diagnostics,
                     &self.scopes,
                 );
             }
         }
         for path in &self.documents {
+            let canonical = match path.canonicalize() {
+                Ok(path) => path,
+                Err(error) => {
+                    cx.sess().dcx().err(format!(
+                        "could not resolve spelling document {}: {error}",
+                        path.display()
+                    ));
+                    return;
+                }
+            };
+            if included_files.contains(&canonical) {
+                continue;
+            }
             let file = match cx.sess().source_map().load_file(path) {
                 Ok(file) => file,
                 Err(error) => {
@@ -304,12 +395,12 @@ impl<'tcx> LateLintPass<'tcx> for Spellcheck {
                 file.start_pos,
                 |range| range,
                 &checker,
-                &mut candidates,
+                &mut diagnostics,
                 &[],
             );
         }
         for vocabulary in &checker.missing {
-            match Checker::collect_candidates(vocabulary, &candidates) {
+            match Checker::collect_candidates(vocabulary, &diagnostics.candidates) {
                     Ok(path) => cx.sess().dcx().note(format!(
                         "Collected spelling candidates in {}. Review for genuine typos before renaming to {}. This list accumulates across runs; delete it before a fresh collection.",
                         path.strip_prefix(&root).unwrap_or(&path).display(),

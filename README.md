@@ -6,10 +6,11 @@
 
 A [Dylint](https://github.com/trailofbits/dylint) spelling lint for Rust comments, Markdown, and plain text, powered by [kotoshu-rs](https://github.com/kotoshu/kotoshu-rs).
 
-Checks Rust comments using bundled English and reports misspelled words with source locations and up to three suggestions. Add Markdown and plain-text documents with `include`. Strings and identifiers are not checked.
+Checks Rust comments and Rustdoc attributes using bundled English and reports misspelled words with source locations and up to three suggestions. Add Markdown and plain-text documents with `include`. Ordinary strings and identifiers are not checked.
 
 - [Setup](#setup)
 - [Usage](#usage)
+- [Rustdoc attributes](#rustdoc-attributes)
 - [Standalone documents](#standalone-documents)
 - [Scoped suppression](#scoped-suppression)
 - [Generate project vocabulary](#generate-project-vocabulary)
@@ -77,6 +78,12 @@ mv .spellcheck.tmp .spellcheck.txt
 ```
 
 Commit `.spellcheck.txt` with `dylint.toml`. Subsequent runs read the vocabulary without modifying it or collecting new candidates.
+
+## Rustdoc attributes
+
+In addition to `///` and `//!`, documentation in `#[doc = "..."]`, raw strings, and `#![doc = include_str!("../README.md")]` is checked as Markdown. Attributes on the same item are combined in order, including adjacent documentation comments. Diagnostics point into the literal (including escapes) or the included UTF-8 file. Other compiler-expanded documentation expressions use their call-site span when exact character mapping is unavailable; the lint does not evaluate macros itself.
+
+Rust lint attributes on the documented item control these diagnostics and vocabulary candidates. Rust's `include_str!` dependency tracking triggers rechecks when included files change. Included Rustdoc takes precedence over standalone selection in that compilation, and repeated diagnostics at the same source location are emitted once. Separate compilation targets can still report the same included document.
 
 ## Standalone documents
 

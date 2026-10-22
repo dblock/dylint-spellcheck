@@ -4,6 +4,69 @@ mod support;
 
 #[test]
 #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+fn rustdoc_attributes_check_literals_and_included_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"rustdocs\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rs"), "#![allow(dead_code)]\n#![doc = include_str!(\"../README.md\")]\n#[doc = \"hello h\\u{65}lo\"]\nfn literal() {}\n#[doc = r#\"world wrld `Skippedwrongword`\"#]\nfn raw() {}\n#[allow(spellcheck)]\n#[doc = \"Hiddenwrongword\"]\n#[doc = include_str!(\"../README.md\")]\nfn hidden() {}\n#[doc = include_str!(\"../README.md\")]\nfn repeated() {}\nfn main() {}\n").unwrap();
+    let source = fs::read_to_string(root.join("src/main.rs")).unwrap();
+    fs::write(root.join("src/main.rs"), format!("{source}\n#[doc = \"```rust\"]\n/// Skippedwrongword\n#[doc = \"```\"]\nfn mixed() {{}}\n#[allow(spellcheck)]\n#[doc = include_str!(\"../hidden.md\")]\nfn hidden_include() {{}}\n")).unwrap();
+    fs::write(root.join("hidden.md"), "Hiddenincludewrongword\n").unwrap();
+    fs::write(
+        root.join("README.md"),
+        "hello Includedwrongword\n\n```\nSkippedwrongword\n```\n",
+    )
+    .unwrap();
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ninclude = [\"README.md\"]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n").unwrap();
+    let output = lint(root, false);
+    let stderr = diagnostics(&output);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("`helo`"), "{stderr}");
+    assert!(stderr.contains("src/main.rs:3:16"), "{stderr}");
+    assert!(stderr.contains("`wrld`"), "{stderr}");
+    assert!(stderr.contains("README.md:1:7"), "{stderr}");
+    assert_eq!(
+        stderr
+            .matches("misspelled word: `Includedwrongword`")
+            .count(),
+        1,
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("misspelled word: `Hiddenwrongword`"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("misspelled word: `Hiddenincludewrongword`"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("misspelled word: `Skippedwrongword`"),
+        "{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(".spellcheck.tmp")).unwrap(),
+        "Includedwrongword\nhelo\nwrld\n"
+    );
+    fs::write(root.join("dylint.toml"), "[dylint-spellcheck]\ndictionaries = [\"crate:dylint-spellcheck/data/en\", \".spellcheck.txt\"]\n").unwrap();
+    let output = lint(root, false);
+    assert!(output.status.success(), "{}", diagnostics(&output));
+    fs::write(root.join("README.md"), "Changedwrongword\n").unwrap();
+    let output = lint(root, false);
+    assert!(
+        diagnostics(&output).contains("`Changedwrongword`"),
+        "{}",
+        diagnostics(&output)
+    );
+}
+
+#[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn plain_text_is_literal_excludes_resources_and_rechecks_edits() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
