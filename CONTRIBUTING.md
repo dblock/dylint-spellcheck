@@ -27,7 +27,7 @@ cargo test --locked
 
 CI runs these checks on Linux and macOS. Add focused regressions for changed behavior and review expected compiler diagnostics when updating UI fixtures.
 
-Integration tests reuse a built lint library but keep consumer target directories isolated to test real Cargo invalidation.
+Tests cover parsing and dictionary behavior, compiler diagnostics (`ui/`), and complete consumer projects (`tests/integration/`). Consumer tests share one built lint library but use isolated target directories so edits, vocabulary promotion, and workspace ownership exercise real Cargo invalidation. Readable cross-format fixtures live in `tests/fixtures/project/`.
 
 ### Dylint
 
@@ -41,18 +41,18 @@ The metadata uses `path = "."` to check the current implementation. Fix typos an
 
 Filesystem tests use isolated temporary directories. Narrow allowances on those tests suppress the general collection's `non_thread_safe_call_in_test` false positives without disabling the rule elsewhere.
 
-## Coverage
+### Coverage
 
-The Coverage workflow runs on Linux and macOS and combines reports on [Coveralls](https://coveralls.io/github/dblock/dylint-spellcheck). It uses the GitHub Actions token, without a repository secret. Maintainers must enable the repository in Coveralls before uploads can succeed.
+CI combines Linux and macOS reports on [Coveralls](https://coveralls.io/github/dblock/dylint-spellcheck). The repository must be enabled in Coveralls; uploads use the GitHub Actions token.
 
 The pinned toolchain includes `llvm-tools-preview`. To generate the same report locally:
 
 ```sh
 cargo +stable install cargo-llvm-cov --locked
-cargo llvm-cov --all-features --workspace --locked --lcov --output-path lcov.info
+cargo llvm-cov --all-features --workspace --locked --fail-under-lines 95 --lcov --output-path lcov.info
 ```
 
-Compiler subprocesses and separately built Dylint libraries may not contribute to coverage; covered test helpers do not prove their compiler-side paths are covered.
+This runs the tests and enforces 95% line coverage; a separate `cargo test` is unnecessary. Consumer tests build an instrumented lint library in the coverage target directory, so compiler-subprocess execution contributes to the report. To inspect remaining gaps, run `cargo llvm-cov report --show-missing-lines`.
 
 ## Documentation and changelog
 

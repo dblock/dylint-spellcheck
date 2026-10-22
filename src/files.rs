@@ -142,5 +142,11 @@ mod tests {
         )
         .unwrap();
         assert!(selection.files.is_empty());
+        let selection = select(root, &["docs/../docs/readme.md".into()], &[]).unwrap();
+        assert!(
+            selection
+                .files
+                .contains(&root.join("docs/readme.md").canonicalize().unwrap())
+        );
     }
 }

@@ -1,0 +1,46 @@
+#![allow(dead_code)]
+
+// Quuxify wrold
+/// `Skippedword`
+/// https://ignoredword.test a@ignoredword.test
+fn main() {}
+
+#[allow(spellcheck)]
+mod suppressed {
+    // Suppressedword
+}
+
+#[allow(spellcheck)]
+trait Example {
+    /// Suppressedword
+    fn example();
+}
+
+struct Record {
+    #[allow(spellcheck)]
+    /// Suppressedword
+    field: usize,
+}
+
+enum Choice {
+    #[allow(spellcheck)]
+    /// Suppressedword
+    Value,
+}
+
+impl Record {
+    #[allow(spellcheck)]
+    /// Suppressedword
+    fn example(&self) {}
+}
+
+extern "C" {
+    #[allow(spellcheck)]
+    /// Suppressedword
+    fn external();
+}
+
+macro_rules! generated {
+    () => { fn generated() {} };
+}
+generated!();

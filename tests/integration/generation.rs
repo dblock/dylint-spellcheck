@@ -1,18 +1,13 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
-mod support;
+use crate::support;
 
 fn lint(root: &Path) -> std::process::Output {
-    lint_command(root).output().unwrap()
-}
-
-fn lint_command(root: &Path) -> Command {
-    let mut command = support::lint_command(root);
-    command.env("CARGO_CACHE_RUSTC_INFO", "0");
-    command
+    support::lint(root, false)
 }
 
 #[test]
+#[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
 fn collects_across_compiler_processes_and_rechecks_after_promotion() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -118,7 +113,7 @@ fn collects_across_compiler_processes_and_rechecks_after_promotion() {
     );
 
     fs::remove_file(root.join(".spellcheck.txt")).unwrap();
-    let result = lint_command(root)
+    let result = support::lint_command(root)
         .env("RUSTFLAGS", "-D warnings")
         .output()
         .unwrap();

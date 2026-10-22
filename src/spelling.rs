@@ -594,6 +594,22 @@ mod tests {
                 "{reference}"
             );
         }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root, root.join("local/outside")).unwrap();
+            let error = Checker::load(
+                Config {
+                    dictionaries: Dictionaries::Paths(vec![
+                        "crate:other-dictionaries/outside".into(),
+                    ]),
+                    ..Config::default()
+                },
+                root,
+            )
+            .err()
+            .unwrap();
+            assert!(error.contains("escapes its package"), "{error}");
+        }
     }
 
     #[test]
@@ -639,6 +655,66 @@ mod tests {
             .err()
             .unwrap()
             .contains("existing parent")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(dylint_lib = "general", allow(non_thread_safe_call_in_test))]
+    fn rejects_invalid_resources_before_collecting_candidates() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "").unwrap();
+        cargo_metadata::MetadataCommand::new()
+            .current_dir(root)
+            .exec()
+            .unwrap();
+        for dictionaries in [
+            Dictionaries::Languages(BTreeMap::from([("../en".into(), Vec::new())])),
+            Dictionaries::Paths(vec!["crate:/data/en".into()]),
+            Dictionaries::Paths(vec!["crate:dylint-spellcheck/".into()]),
+            Dictionaries::Paths(vec!["crate:dylint-spellcheck/other".into()]),
+        ] {
+            assert!(
+                Checker::load(
+                    Config {
+                        dictionaries,
+                        ..Config::default()
+                    },
+                    root
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            Checker::load(
+                Config {
+                    dictionaries: Dictionaries::Paths(vec![".".into()]),
+                    ..Config::default()
+                },
+                root
+            )
+            .err()
+            .unwrap()
+            .contains("no .aff/.dic pairs")
+        );
+        fs::write(root.join("invalid.txt"), [0xff]).unwrap();
+        assert!(
+            Checker::load(
+                Config {
+                    dictionaries: Dictionaries::Paths(vec!["invalid.txt".into()]),
+                    ..Config::default()
+                },
+                root
+            )
+            .err()
+            .unwrap()
+            .contains("could not read vocabulary")
         );
     }
 

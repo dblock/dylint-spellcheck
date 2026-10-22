@@ -34,7 +34,7 @@ jobs:
         run: cargo +stable install cargo-dylint dylint-link --version 6.2.0 --locked
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
-        run: cargo llvm-cov --all-features --workspace --locked --lcov --output-path lcov.info
+        run: cargo llvm-cov --all-features --workspace --locked --fail-under-lines 95 --lcov --output-path lcov.info
       - uses: coverallsapp/github-action@v2
         with:
           file: lcov.info
