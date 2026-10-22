@@ -10,12 +10,11 @@ Consider compatibility changes to configuration, checked content, dictionaries, 
 
 ## 2. Prepare the changelog and manifest
 
-Start from current `main` with a clean working tree and create a release branch:
+Start from current `main` with a clean working tree. Commit release preparation directly to this default branch; no release branch or pull request is needed.
 
 ```sh
 git switch main
 git pull --ff-only origin main
-git switch -c release-v0.1.0
 ```
 
 If `[Unreleased]` is empty, stop: there is nothing to release. Rename it to the version and today's date, for example `## [0.1.0] - YYYY-MM-DD`, then add a fresh empty `[Unreleased]` section above it. Preserve the linked PRs and contributors.
@@ -44,25 +43,22 @@ cargo test --locked
 
 Review changed UI diagnostics and dictionary license/provenance notices.
 
-## 4. Open and merge the release PR
+## 4. Commit and push the release
 
 ```sh
 git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -m "Release v0.1.0"
-git push -u origin release-v0.1.0
-gh pr create --base main --title "Release v0.1.0" --body "Prepare v0.1.0; see CHANGELOG.md for release notes."
+git push origin main
 ```
 
-Wait for all PR checks, then squash-merge the release PR. Update local `main` and confirm the Test, Lint, and Coverage workflows for the exact release commit pass before tagging:
+Confirm the Test, Lint, and Coverage workflows for the exact pushed release commit pass before tagging:
 
 ```sh
-git switch main
-git pull --ff-only origin main
 git log -1 --oneline
 gh run list --branch main --commit "$(git rev-parse HEAD)"
 ```
 
-Verify this is the merged release commit and its version/changelog match. Do not tag unrelated changes that landed afterward.
+Verify this is the release commit and its version/changelog match. Do not tag unrelated changes that landed afterward, and never force-push `main`.
 
 ## 5. Tag and create the GitHub release
 
