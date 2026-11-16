@@ -21,12 +21,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Cache Dylint driver
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.dylint_drivers
           key: dylint-driver-${{ runner.os }}-${{ runner.arch }}-6.4.0-${{ hashFiles('rust-toolchain.toml') }}
