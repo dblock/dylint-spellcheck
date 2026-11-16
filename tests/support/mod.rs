@@ -26,9 +26,19 @@ fn library() -> &'static Path {
             let target = Path::new(&profile)
                 .parent()
                 .expect("missing coverage directory");
+            // Release-like settings in the development profile: `cargo-llvm-cov` only reads objects under `debug`.
             let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
                 .current_dir(root)
-                .args(["build", "--lib", "--locked", "--target-dir"])
+                .args([
+                    "build",
+                    "--lib",
+                    "--locked",
+                    "--config",
+                    "profile.dev.debug=0",
+                    "--config",
+                    "profile.dev.opt-level=3",
+                    "--target-dir",
+                ])
                 .arg(target)
                 .env("RUSTFLAGS", "-C instrument-coverage")
                 .env_remove("CARGO_ENCODED_RUSTFLAGS")
